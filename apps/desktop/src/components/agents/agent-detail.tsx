@@ -457,10 +457,11 @@ function Source({ agent }: { agent: Agent }) {
     [agent],
   );
 
-  // In-memory edit overlay — { path → currentContent }. Persistence to disk
-  // is a future commit (needs IPC to the main process).
+  // Edit overlay — { path → currentContent }. Save writes to disk via IPC;
+  // vite HMR picks up the change and reloads the parsed agent.
   const [edits, setEdits] = useState<Record<string, string>>({});
   const [editing, setEditing] = useState(false);
+  const [savingPath, setSavingPath] = useState<string | null>(null);
   const [selectedPath, setSelectedPath] = useState<string>(baseFiles[0]!.path);
 
   const files = useMemo(
@@ -479,10 +480,27 @@ function Source({ agent }: { agent: Agent }) {
     setEdits((e) => ({ ...e, [selected.path]: newContent }));
   };
 
-  const handleSave = () => {
-    // TODO: IPC out to main process to write back to disk.
-    // For now, the edit lives in-memory; we just exit edit mode.
-    setEditing(false);
+  const handleSave = async () => {
+    if (!selected.dirty) {
+      setEditing(false);
+      return;
+    }
+    setSavingPath(selected.path);
+    try {
+      await window.flowstate.writeAgentFile(selected.path, selected.content);
+      // Drop the overlay — vite HMR will reload the file from disk shortly,
+      // and the bundled `raw` will reflect the new content next render.
+      setEdits((e) => {
+        const { [selected.path]: _omit, ...rest } = e;
+        return rest;
+      });
+      setEditing(false);
+    } catch (err) {
+      console.error('Save failed', err);
+      alert(`Couldn\'t save: ${err instanceof Error ? err.message : String(err)}`);
+    } finally {
+      setSavingPath(null);
+    }
   };
 
   const handleRevert = () => {
@@ -543,9 +561,16 @@ function Source({ agent }: { agent: Agent }) {
                     revert
                   </button>
                 )}
-                <button onClick={handleSave} className="btn-dark px-2 py-1 text-2xs">
+                <button
+                  onClick={handleSave}
+                  disabled={savingPath === selected.path}
+                  className={cn(
+                    'btn-dark px-2 py-1 text-2xs',
+                    savingPath === selected.path && 'cursor-wait opacity-60',
+                  )}
+                >
                   <Save size={10} />
-                  save (in-memory)
+                  {savingPath === selected.path ? 'saving…' : selected.dirty ? 'save' : 'done'}
                 </button>
               </>
             ) : (

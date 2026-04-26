@@ -1,6 +1,8 @@
 import { app, BrowserWindow, shell, ipcMain } from 'electron';
-import { join } from 'node:path';
+import { join, normalize, resolve, sep } from 'node:path';
 import { fileURLToPath } from 'node:url';
+import { mkdir, readFile, writeFile } from 'node:fs/promises';
+import { existsSync } from 'node:fs';
 import { runAgent, type RuntimeRunRequest } from './agent-runtime';
 
 const __dirname = fileURLToPath(new URL('.', import.meta.url));
@@ -9,6 +11,34 @@ const isDev = !app.isPackaged;
 
 /** Track in-flight runs so we can cancel via IPC. */
 const inFlight = new Map<string, AbortController>();
+
+/**
+ * Where agent files live on disk.
+ *
+ * Dev: the source directory `apps/desktop/src/agents/` so writes round-trip
+ *      through vite HMR (you'll see the change reflect immediately).
+ * Prod: <userData>/agents/ — the canonical user directory once packaged.
+ */
+function agentsRoot(): string {
+  if (isDev) {
+    // out/main/index.js -> apps/desktop/src/agents
+    return resolve(__dirname, '..', '..', 'src', 'agents');
+  }
+  return join(app.getPath('userData'), 'agents');
+}
+
+/** Resolve a vite-style relative path (./foo/bar.md) into an absolute fs path,
+ *  rejecting any attempt to break out of the agents root via `..`. */
+function resolveAgentPath(relPath: string): string {
+  // Strip leading ./ that vite glob keys carry
+  const cleaned = relPath.replace(/^\.\//, '');
+  const abs = normalize(join(agentsRoot(), cleaned));
+  const root = agentsRoot();
+  if (!abs.startsWith(root + sep) && abs !== root) {
+    throw new Error(`Path "${relPath}" escapes the agents root`);
+  }
+  return abs;
+}
 
 function createMainWindow(): BrowserWindow {
   const win = new BrowserWindow({
@@ -85,6 +115,29 @@ app.whenReady().then(() => {
     }
     return false;
   });
+
+  // ─── Agent file persistence ───────────────────────────────────────────
+  // Dev: writes round-trip through vite HMR (you see the change reflect
+  // immediately). Prod: writes go to <userData>/agents/.
+
+  ipcMain.handle('agent:read', async (_e, relPath: string): Promise<string> => {
+    const abs = resolveAgentPath(relPath);
+    return readFile(abs, 'utf8');
+  });
+
+  ipcMain.handle(
+    'agent:write',
+    async (_e, payload: { relPath: string; content: string }): Promise<{ path: string }> => {
+      const abs = resolveAgentPath(payload.relPath);
+      // Ensure parent directories exist (e.g. ./refund-handler/steps/05-new.md)
+      const parent = abs.substring(0, abs.lastIndexOf(sep));
+      if (!existsSync(parent)) await mkdir(parent, { recursive: true });
+      await writeFile(abs, payload.content, 'utf8');
+      return { path: payload.relPath };
+    },
+  );
+
+  ipcMain.handle('agent:root', (): string => agentsRoot());
 
   createMainWindow();
 
