@@ -548,7 +548,10 @@ function Source({ agent }: { agent: Agent }) {
           </div>
         </div>
 
-        <div className="flex-1 overflow-hidden">
+        {/* min-h-0 is the classic flexbox-overflow fix: without it,
+            flex-1 children refuse to shrink below their content height,
+            which is exactly why the editor wouldn't scroll. */}
+        <div className="flex-1 min-h-0 overflow-hidden">
           <SourceEditor
             content={selected.content}
             language={detectLanguage(selected.path)}

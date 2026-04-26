@@ -22,20 +22,31 @@ interface Props {
   onChange?: (content: string) => void;
 }
 
+// Force JetBrains Mono on the editor + every internal text node so it
+// outranks any inherited body font. Higher-specificity selectors needed
+// because the @uiw/react-codemirror baseTheme uses lots of generic rules.
+const FONT_STACK = '"JetBrains Mono", ui-monospace, "SFMono-Regular", monospace';
+
 const cohereCMTheme = EditorView.theme(
   {
     '&': {
       backgroundColor: 'hsl(0 0% 100%)',
       color: 'hsl(0 0% 0%)',
-      fontFamily: '"JetBrains Mono", ui-monospace, monospace',
-      fontSize: '12px',
-      lineHeight: '1.6',
+      fontFamily: FONT_STACK,
+      fontSize: '12.5px',
+      lineHeight: '1.65',
       height: '100%',
     },
-    '.cm-scroller': { overflow: 'auto' },
+    '.cm-scroller': {
+      overflow: 'auto',
+      fontFamily: FONT_STACK,
+    },
+    '.cm-content, .cm-content *': {
+      fontFamily: FONT_STACK,
+    },
     '.cm-content': {
       caretColor: 'hsl(218 75% 47%)',
-      padding: '20px 0',
+      padding: '16px 0',
     },
     '.cm-cursor, .cm-dropCursor': { borderLeftColor: 'hsl(218 75% 47%)' },
     '.cm-gutters': {
@@ -44,6 +55,7 @@ const cohereCMTheme = EditorView.theme(
       border: 'none',
       borderRight: '1px solid hsl(0 0% 95%)',
       paddingRight: '8px',
+      fontFamily: FONT_STACK,
     },
     '.cm-lineNumbers .cm-gutterElement': {
       padding: '0 8px',
@@ -74,11 +86,18 @@ function langExtension(lang: Props['language']): Extension[] {
 
 export function SourceEditor({ content, language, editing, onChange }: Props) {
   if (!editing) {
-    return <CodeView code={content} language={language} />;
+    // Read-only mode: wrap CodeView so vertical scroll lives at the right level.
+    return (
+      <div className="h-full min-h-0 overflow-y-auto">
+        <CodeView code={content} language={language} />
+      </div>
+    );
   }
 
   return (
-    <div className="h-full">
+    // h-full + min-h-0 lets us shrink inside a flex parent so the editor
+    // can actually overflow + scroll. overflow-hidden caps it to parent.
+    <div className="h-full min-h-0 overflow-hidden">
       <CodeMirror
         value={content}
         extensions={[...langExtension(language), cohereCMTheme]}
@@ -93,6 +112,8 @@ export function SourceEditor({ content, language, editing, onChange }: Props) {
         }}
         theme="light"
         height="100%"
+        maxHeight="100%"
+        style={{ height: '100%', overflow: 'hidden' }}
       />
     </div>
   );
