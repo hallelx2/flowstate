@@ -69,6 +69,21 @@ export function CreateAgentModal({ open, onClose, onCreated }: Props) {
     if (!canSubmit) return;
     setErr(null);
     setSaving(true);
+
+    // Preload changes don't HMR — the IPC handlers added in Stage 2 only
+    // exist after Electron is restarted. Detect that explicitly so the
+    // user gets actionable guidance instead of a silent no-op.
+    if (typeof window.flowstate?.writeAgentFile !== 'function') {
+      console.error(
+        '[create-agent] window.flowstate.writeAgentFile is undefined — restart `pnpm dev` to pick up new preload IPC handlers',
+      );
+      setErr(
+        'Preload IPC not loaded. Restart `pnpm dev` (the Electron process needs to relaunch to pick up new preload handlers).',
+      );
+      setSaving(false);
+      return;
+    }
+
     try {
       const content = serializeAgent({
         id,
@@ -83,10 +98,13 @@ export function CreateAgentModal({ open, onClose, onCreated }: Props) {
         body: body.trim() || `## Goal\n\nDescribe what this agent should accomplish.`,
       });
       const relPath = `./${id}.md`;
-      await window.flowstate.writeAgentFile(relPath, content);
+      console.log('[create-agent] writing', relPath, '\n', content);
+      const result = await window.flowstate.writeAgentFile(relPath, content);
+      console.log('[create-agent] saved', result);
       onCreated?.(relPath);
       onClose();
     } catch (e) {
+      console.error('[create-agent] save failed', e);
       setErr(e instanceof Error ? e.message : String(e));
     } finally {
       setSaving(false);
@@ -132,6 +150,23 @@ export function CreateAgentModal({ open, onClose, onCreated }: Props) {
                   <X size={14} />
                 </button>
               </div>
+
+              {/* Sticky error banner — visible no matter how far the user scrolled */}
+              {err && (
+                <div className="shrink-0 border-b border-err/40 bg-err/10 px-6 py-3">
+                  <div className="flex items-start gap-2 text-sm text-err">
+                    <span className="mt-0.5 font-mono text-2xs uppercase tracking-code">error</span>
+                    <span className="flex-1">{err}</span>
+                    <button
+                      onClick={() => setErr(null)}
+                      className="rounded p-0.5 hover:bg-err/20"
+                      title="Dismiss"
+                    >
+                      <X size={11} />
+                    </button>
+                  </div>
+                </div>
+              )}
 
               {/* Body — scrollable form */}
               <div className="flex-1 overflow-y-auto px-7 py-6">
@@ -265,11 +300,6 @@ export function CreateAgentModal({ open, onClose, onCreated }: Props) {
                     />
                   </FormRow>
 
-                  {err && (
-                    <div className="rounded-md border border-err/40 bg-err/10 px-3 py-2 text-sm text-err">
-                      {err}
-                    </div>
-                  )}
                 </div>
               </div>
 
