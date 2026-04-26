@@ -34,34 +34,44 @@ permissions:
   env:
     - STRIPE_API_KEY
     - GMAIL_TOKEN
+
+# ─── Linked sections ──────────────────────────────────────────────────────
+# Each section either inlines its body or includes an external markdown file
+# from the ./refund-handler/ directory. The loader resolves these into the
+# canonical AST — the runtime sees one fully-inlined Agent.
+
+sections:
+  goal:
+    include: ./refund-handler/goal.md
+
+  rules:
+    - title: 30-day window
+      body: { include: ./refund-handler/rules/timing-window.md }
+    - title: Stripe API usage
+      appliesTo: [mcp:stripe.refunds.create, mcp:stripe.charges.list]
+      body: { include: ./refund-handler/rules/stripe-usage.md }
+
+  steps:
+    - id: verify
+      title: Verify the request
+      body: { include: ./refund-handler/steps/01-verify.md }
+    - id: refund
+      title: Issue the refund
+      body: { include: ./refund-handler/steps/02-refund.md }
+    - id: notify-customer
+      title: Email the customer
+      body: { include: ./refund-handler/steps/03-notify-customer.md }
+    - id: notify-ops
+      title: Post to ops
+      body: { include: ./refund-handler/steps/04-notify-ops.md }
+
+  onFailure:
+    include: ./refund-handler/on-failure.md
 ---
 
-## Goal
+This agent shows the **nested file structure** in action: the master file
+holds metadata + section references, while each step, rule, and the goal
+itself live in their own focused markdown files under `./refund-handler/`.
 
-When a refund request lands at `/refund`, verify the order is within the
-30-day window, issue the refund through Stripe, email the customer
-confirmation, and post a record to `#ops-billing`.
-
-## Steps
-
-### 1. Verify the request
-Pull the order ID from the webhook payload. Look up the order in Stripe and
-check the purchase date. If older than 30 days, reply `{ status: "denied",
-reason: "outside refund window" }` and stop.
-
-### 2. Issue the refund
-Refund the original payment intent in full. Use `reason: customer_request`.
-
-### 3. Notify the customer
-Send a confirmation email summarizing the refund amount, the original order,
-and expected funds-availability window (5–10 business days).
-
-### 4. Post to ops
-Drop a single line into `#ops-billing` with the customer name, amount, and
-the Stripe refund ID.
-
-## On failure
-
-If Stripe rejects the refund (insufficient balance, dispute already filed,
-etc.), do **not** retry automatically. Escalate to `#ops-billing` with the
-full Stripe error and the original request payload.
+The runtime sees a single fully-inlined agent. The UI shows you the file
+tree so you can navigate the source.
