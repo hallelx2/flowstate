@@ -14,3 +14,6 @@ export * from './capabilities';
 
 // Standardized tool adapter contract — every tool kind implements this
 export * from './tool-adapter';
+
+// Capability resolver + permission gate — pure functions usable in any context
+export * from './resolver';
