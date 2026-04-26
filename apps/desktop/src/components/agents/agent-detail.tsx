@@ -21,7 +21,8 @@ import { cn } from '@/lib/cn';
 import { MarkdownView } from '@/components/prose/markdown-view';
 import { SourceEditor } from '@/components/prose/source-editor';
 import { triggerLabel, toolRefDisplay } from './agent-meta';
-import { startMockRun } from '@/lib/mock-runner';
+import { startSdkRun } from '@/lib/sdk-runner';
+import { assembleSystemPrompt, defaultUserPrompt } from '@/lib/agent-prompt';
 import { Pencil, Save, Undo2 } from 'lucide-react';
 
 type Tab = 'inspector' | 'source';
@@ -35,7 +36,15 @@ export function AgentDetail({ agent, onRunStarted }: Props) {
   const [tab, setTab] = useState<Tab>('inspector');
 
   const handleRun = () => {
-    startMockRun({ agentId: agent.id, agentName: agent.name });
+    startSdkRun({
+      agentId: agent.id,
+      agentName: agent.name,
+      prompt: defaultUserPrompt(agent),
+      agentSystemPrompt: assembleSystemPrompt(agent),
+      // TODO: translate agent.tools (mcp:gmail.send / cli:gh.pr.create / etc.)
+      // into the SDK's allowedTools shape. For now: undefined = all built-in
+      // SDK tools available.
+    });
     onRunStarted?.();
   };
 

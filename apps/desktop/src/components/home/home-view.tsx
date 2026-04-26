@@ -2,7 +2,7 @@ import { useState } from 'react';
 import { motion } from 'motion/react';
 import { Sparkles, ArrowUpRight, Wrench, Workflow, Plus, Command } from 'lucide-react';
 import { cn } from '@/lib/cn';
-import { startMockRun } from '@/lib/mock-runner';
+import { startSdkRun } from '@/lib/sdk-runner';
 
 interface Props {
   onOpenTools: () => void;
@@ -37,10 +37,12 @@ export function HomeView({ onOpenTools, onOpenFlow, onRunStarted }: Props) {
 
   const handleStart = () => {
     if (!draft.trim()) return;
-    startMockRun({
+    startSdkRun({
       agentId: null, // ad-hoc run
       agentName: 'Ad-hoc',
       prompt: draft.trim(),
+      // No system prompt — Claude reasons from the user prompt directly.
+      // Tools default to the SDK built-ins (Read/Write/Edit/Bash).
     });
     setDraft('');
     onRunStarted();

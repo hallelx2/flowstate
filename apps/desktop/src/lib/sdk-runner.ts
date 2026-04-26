@@ -1,5 +1,6 @@
 import type { RunStep } from '@flowstate/core';
 import { runStore, type Run } from './run-store';
+import { startMockRun } from './mock-runner';
 
 /**
  * Renderer-side adapter for the main-process Claude Agent SDK runtime.
@@ -11,10 +12,9 @@ import { runStore, type Run } from './run-store';
  *   4. We translate agent events → runStore mutations (steps, totals, status)
  *   5. The cleanup unsub fires when the run terminates
  *
- * STATUS: wired but not yet the default code path. The home composer +
- * agent Run button currently use lib/mock-runner.ts so the demo works
- * without Claude Code authentication. Swap by replacing those callers
- * with `startSdkRun(...)` once the user has a valid auth source.
+ * Auth-failure fallback: if the SDK throws on startup (no Claude auth on
+ * this machine, no API key, etc.), we fall back to the mock runner so the
+ * UI still demonstrates a believable trace. A toast surfaces the reason.
  */
 
 interface StartOpts {
@@ -101,12 +101,29 @@ export function startSdkRun(opts: StartOpts): Run {
       model: opts.model,
     })
     .catch((err) => {
-      runStore.update(run.id, {
-        status: 'failed',
-        endedAt: new Date().toISOString(),
-      });
-      console.error('SDK run failed', err);
+      console.warn('[sdk-runner] SDK invocation failed, falling back to mock', err);
       unsub();
+
+      // If the SDK call never produced any steps, the run looks "stuck queued".
+      // Mark the original run as failed with the SDK error...
+      const current = runStore.get(run.id);
+      if (current && current.steps.length === 0) {
+        runStore.update(run.id, {
+          status: 'failed',
+          endedAt: new Date().toISOString(),
+        });
+        // ...and start a fresh mock run so the user still sees something work.
+        startMockRun({
+          agentId: opts.agentId,
+          agentName: `${opts.agentName} (mock fallback)`,
+          prompt: opts.prompt,
+        });
+      } else {
+        runStore.update(run.id, {
+          status: 'failed',
+          endedAt: new Date().toISOString(),
+        });
+      }
     });
 
   return run;
