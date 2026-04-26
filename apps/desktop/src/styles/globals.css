@@ -1,0 +1,277 @@
+/* ──────────────────────────────────────────────────────────
+   flowstate · Cohere design system (Tailwind 4 · CSS-first)
+   Sourced from `npx getdesign add cohere` → DESIGN.md
+   ────────────────────────────────────────────────────────── */
+
+@import "tailwindcss";
+
+/* ─── Theme tokens · the entire design system lives here ─── */
+@theme {
+  /* Surfaces — pure white canvas + snow elevations + lightest containment */
+  --color-paper: hsl(0 0% 100%);            /* #ffffff */
+  --color-paper-raised: hsl(0 0% 100%);
+  --color-paper-sunken: hsl(0 0% 98%);       /* #fafafa Snow */
+  --color-paper-inverted: hsl(240 9% 10%);   /* #17171c Deep Dark */
+
+  /* Ink — Cohere Black ladder */
+  --color-ink: hsl(0 0% 0%);                 /* #000000 Cohere Black */
+  --color-ink-muted: hsl(0 0% 13%);          /* #212121 Near Black */
+  --color-ink-subtle: hsl(240 5% 60%);       /* #93939f Muted Slate */
+  --color-ink-inverted: hsl(0 0% 100%);
+  --color-ink-deep: hsl(240 9% 10%);         /* #17171c */
+
+  /* Borders — cool grays */
+  --color-stone: hsl(240 5% 86%);            /* #d9d9dd Border Cool */
+  --color-stone-strong: hsl(240 5% 70%);
+  --color-stone-subtle: hsl(0 0% 95%);       /* #f2f2f2 Lightest */
+  --color-stone-light: hsl(220 13% 91%);     /* #e5e7eb */
+
+  /* Accent · Interaction Blue — the SOLE chromatic action color */
+  --color-accent-50: hsl(218 80% 97%);
+  --color-accent-100: hsl(218 80% 92%);
+  --color-accent-200: hsl(218 78% 85%);
+  --color-accent-300: hsl(218 76% 76%);
+  --color-accent-400: hsl(228 72% 60%);      /* #4c6ee6 Ring Blue */
+  --color-accent-500: hsl(218 75% 47%);      /* #1863dc Interaction Blue */
+  --color-accent-600: hsl(218 78% 40%);
+  --color-accent-700: hsl(218 80% 32%);
+  --color-accent-800: hsl(218 80% 24%);
+  --color-accent-900: hsl(218 78% 16%);
+
+  /* Cohere Purple · for hero bands (never card backgrounds per DESIGN.md) */
+  --color-cohere-purple-50: hsl(282 30% 96%);
+  --color-cohere-purple-100: hsl(282 28% 88%);
+  --color-cohere-purple-300: hsl(282 24% 60%);
+  --color-cohere-purple-500: hsl(282 24% 38%);
+  --color-cohere-purple-700: hsl(282 32% 22%);
+  --color-cohere-purple-900: hsl(280 38% 12%);
+  --color-cohere-purple-focus: hsl(290 28% 53%); /* #9b60aa Focus Purple */
+
+  /* Semantic */
+  --color-ok: hsl(150 50% 38%);
+  --color-warn: hsl(38 88% 48%);
+  --color-err: hsl(0 70% 50%);
+
+  /* Fonts — DESIGN.md fallback chains */
+  --font-display: "CohereText", "Space Grotesk", "Inter", ui-sans-serif, system-ui;
+  --font-sans: "Unica77 Cohere Web", "Inter", "Arial", ui-sans-serif, system-ui;
+  --font-mono: "CohereMono", "JetBrains Mono", ui-monospace, SFMono-Regular, monospace;
+
+  /* Editorial type scale — Cohere display sizes 60/72px with -1.2/-1.44px tracking */
+  --text-2xs: 0.6875rem;
+  --text-2xs--line-height: 1rem;
+  --text-2xs--letter-spacing: 0.04em;
+  --text-base: 0.9375rem;
+  --text-base--line-height: 1.5rem;
+  --text-3xl: 2rem;
+  --text-3xl--line-height: 2.25rem;
+  --text-3xl--letter-spacing: -0.02em;
+  --text-4xl: 2.5rem;
+  --text-4xl--line-height: 2.55rem;
+  --text-4xl--letter-spacing: -0.025em;
+  --text-5xl: 3.25rem;
+  --text-5xl--line-height: 3.25rem;
+  --text-5xl--letter-spacing: -0.03em;
+  --text-6xl: 3.75rem;
+  --text-6xl--line-height: 3.75rem;
+  --text-6xl--letter-spacing: -0.032em;
+  --text-7xl: 4.5rem;
+  --text-7xl--line-height: 4.5rem;
+  --text-7xl--letter-spacing: -0.032em;
+
+  /* Letter spacing — Cohere mono uppercase code labels */
+  --tracking-tightest: -0.04em;
+  --tracking-code: 0.18em;
+  --tracking-code-wide: 0.28em;
+
+  /* Border radius — Cohere signature (22px is THE card radius) */
+  --radius-sm: 0.25rem;
+  --radius-md: 0.625rem;
+  --radius-lg: 1rem;
+  --radius-xl: 1.375rem;       /* 22px — THE Cohere card */
+  --radius-2xl: 1.75rem;       /* 28px — large hero */
+
+  /* Shadows — almost shadow-free; depth via borders + contrast */
+  --shadow-lift: 0 1px 0 hsl(240 5% 86% / 0.6), 0 4px 12px -8px hsl(220 30% 10% / 0.08);
+  --shadow-glow: 0 0 0 4px hsl(218 75% 47% / 0.16);
+
+  /* Background images — the Cohere purple hero band signature */
+  --background-image-cohere-hero:
+    linear-gradient(135deg, hsl(282 32% 22%) 0%, hsl(280 38% 12%) 60%, hsl(220 22% 8%) 100%);
+  --background-image-cohere-band:
+    linear-gradient(180deg, hsl(282 30% 28%) 0%, hsl(280 38% 14%) 100%);
+  --background-image-cohere-soft:
+    linear-gradient(180deg, hsl(282 60% 96%) 0%, hsl(0 0% 100%) 100%);
+
+  /* Animations */
+  --animate-pulse-blue: pulseBlue 2s ease-in-out infinite;
+  --animate-flicker: flicker 1.4s ease-in-out infinite;
+  --animate-rise: rise 600ms cubic-bezier(0.2, 0.8, 0.2, 1) both;
+}
+
+/* ─── Keyframes ─── */
+@keyframes pulseBlue {
+  0%, 100% { box-shadow: 0 0 0 0 hsl(218 75% 47% / 0.5); }
+  50%      { box-shadow: 0 0 0 6px hsl(218 75% 47% / 0); }
+}
+@keyframes flicker {
+  0%, 100% { opacity: 0.35; }
+  50%      { opacity: 1; }
+}
+@keyframes rise {
+  0%   { transform: translateY(8px); opacity: 0; }
+  100% { transform: translateY(0);   opacity: 1; }
+}
+
+/* ─── Base layer ─── */
+@layer base {
+  html, body, #root {
+    height: 100%;
+    overflow: hidden;
+  }
+
+  body {
+    background-color: var(--color-paper);
+    color: var(--color-ink);
+    font-family: var(--font-sans);
+    font-feature-settings: 'cv11', 'ss01', 'ss03';
+    text-rendering: optimizeLegibility;
+    -webkit-font-smoothing: antialiased;
+    -moz-osx-font-smoothing: grayscale;
+    /* Cohere uses single weight 400 — size and spacing carry hierarchy */
+    font-weight: 400;
+  }
+
+  /* Interaction-Blue / Ring-Blue keyboard focus — Cohere standard */
+  *:focus-visible {
+    outline: none;
+    box-shadow:
+      0 0 0 2px hsl(0 0% 100%),
+      0 0 0 4px hsl(228 72% 60% / 0.5);
+    border-radius: 0.5rem;
+  }
+
+  ::selection {
+    background: hsl(218 80% 92%);
+    color: hsl(0 0% 0%);
+  }
+
+  /* Scrollbars — minimal cool gray */
+  ::-webkit-scrollbar { width: 10px; height: 10px; }
+  ::-webkit-scrollbar-thumb {
+    background: color-mix(in srgb, var(--color-stone-strong) 50%, transparent);
+    border: 2px solid var(--color-paper);
+    border-radius: 9999px;
+  }
+  ::-webkit-scrollbar-thumb:hover {
+    background: color-mix(in srgb, var(--color-stone-strong) 80%, transparent);
+  }
+  ::-webkit-scrollbar-track { background: transparent; }
+
+  /* Display headings — DESIGN.md spec: weight 400, size + spacing carry hierarchy */
+  h1, h2, h3, .display {
+    font-family: var(--font-display);
+    font-weight: 400;
+  }
+
+  /* Window-drag affordance */
+  .app-drag    { -webkit-app-region: drag; }
+  .app-no-drag { -webkit-app-region: no-drag; }
+}
+
+/* ─── Component layer ─── */
+@layer components {
+  /* Cohere uppercase-mono eyebrow — section markers */
+  .eyebrow {
+    font-family: var(--font-mono);
+    font-size: var(--text-2xs);
+    line-height: 1rem;
+    text-transform: uppercase;
+    letter-spacing: 0.18em;
+    color: var(--color-ink-subtle);
+  }
+
+  /* Wider tracking variant — DESIGN.md uppercase code label spec */
+  .eyebrow-wide {
+    font-family: var(--font-mono);
+    font-size: var(--text-2xs);
+    line-height: 1rem;
+    text-transform: uppercase;
+    letter-spacing: 0.28em;
+    color: var(--color-ink-subtle);
+  }
+
+  /* Cohere card — pure white, hairline cool gray border, 22px radius */
+  .sheet {
+    background-color: var(--color-paper-raised);
+    border: 1px solid var(--color-stone-subtle);
+    border-radius: var(--radius-xl);
+  }
+
+  /* Hairline divider */
+  .hairline {
+    border-color: var(--color-stone-subtle);
+  }
+
+  /* Pill — for tags, status indicators */
+  .pill {
+    display: inline-flex;
+    align-items: center;
+    gap: 0.375rem;
+    border-radius: 9999px;
+    border: 1px solid var(--color-stone);
+    background-color: var(--color-paper);
+    padding: 0.125rem 0.5rem;
+  }
+
+  /* Ghost button — Cohere's primary button style */
+  .btn-ghost {
+    display: inline-flex;
+    align-items: center;
+    gap: 0.375rem;
+    border-radius: var(--radius-md);
+    padding: 0.375rem 0.75rem;
+    font-size: 0.875rem;
+    font-weight: 500;
+    color: var(--color-ink);
+    transition: color 150ms;
+  }
+  .btn-ghost:hover { color: var(--color-accent-500); }
+
+  /* Dark solid CTA — for primary actions on light surfaces */
+  .btn-dark {
+    display: inline-flex;
+    align-items: center;
+    gap: 0.375rem;
+    border-radius: var(--radius-md);
+    background-color: var(--color-ink);
+    padding: 0.5rem 0.875rem;
+    font-size: 0.875rem;
+    font-weight: 500;
+    color: var(--color-paper);
+    transition: background-color 150ms;
+  }
+  .btn-dark:hover { background-color: var(--color-accent-600); }
+
+  /* Outlined */
+  .btn-outline {
+    display: inline-flex;
+    align-items: center;
+    gap: 0.375rem;
+    border-radius: var(--radius-md);
+    border: 1px solid var(--color-stone);
+    background-color: var(--color-paper);
+    padding: 0.375rem 0.75rem;
+    font-size: 0.875rem;
+    color: var(--color-ink-muted);
+    transition: all 150ms;
+  }
+  .btn-outline:hover {
+    border-color: var(--color-accent-500);
+    color: var(--color-accent-500);
+  }
+
+  /* The Cohere purple hero band — full-width dramatic section */
+  .cohere-hero { background-image: var(--background-image-cohere-hero); }
+  .cohere-band { background-image: var(--background-image-cohere-band); }
+}
