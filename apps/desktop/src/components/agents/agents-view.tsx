@@ -3,6 +3,7 @@ import { Search, Plus, X } from 'lucide-react';
 import { AGENTS } from '@/agents';
 import { AgentList } from './agent-list';
 import { AgentDetail } from './agent-detail';
+import { CreateAgentModal } from './create-agent-modal';
 
 interface AgentsViewProps {
   onRunStarted?: () => void;
@@ -11,6 +12,7 @@ interface AgentsViewProps {
 export function AgentsView({ onRunStarted }: AgentsViewProps = {}) {
   const [selectedId, setSelectedId] = useState<string | null>(AGENTS[0]?.id ?? null);
   const [query, setQuery] = useState('');
+  const [creating, setCreating] = useState(false);
 
   const visible = useMemo(() => {
     if (!query) return AGENTS;
@@ -37,6 +39,7 @@ export function AgentsView({ onRunStarted }: AgentsViewProps = {}) {
               AGENTS · {AGENTS.length}
             </span>
             <button
+              onClick={() => setCreating(true)}
               className="rounded-md p-1 text-ink-subtle hover:bg-paper hover:text-ink"
               title="New agent"
             >
@@ -74,9 +77,23 @@ export function AgentsView({ onRunStarted }: AgentsViewProps = {}) {
             <p className="mt-2 max-w-sm text-sm text-ink-muted">
               Pick an agent from the list, or create a new one.
             </p>
+            <button onClick={() => setCreating(true)} className="btn-dark mt-5">
+              <Plus size={11} /> create agent
+            </button>
           </div>
         )}
       </main>
+
+      <CreateAgentModal
+        open={creating}
+        onClose={() => setCreating(false)}
+        onCreated={(relPath) => {
+          // Vite HMR will reload the agents/ glob and the new agent will
+          // appear in the list. Pre-select by id when it does.
+          const id = relPath.replace(/^\.\//, '').replace(/\.md$/, '');
+          setSelectedId(id);
+        }}
+      />
     </div>
   );
 }
