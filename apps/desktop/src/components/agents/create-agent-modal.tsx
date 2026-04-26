@@ -378,6 +378,8 @@ interface SerializeOpts {
 
 function serializeAgent(o: SerializeOpts): string {
   const lines: string[] = ['---'];
+  // Spec version pins the parser — keeps marketplace install honest.
+  lines.push(`specVersion: "1.0"`);
   lines.push(`id: ${o.id}`);
   lines.push(`name: ${yamlString(o.name)}`);
   if (o.description) lines.push(`description: ${yamlString(o.description)}`);

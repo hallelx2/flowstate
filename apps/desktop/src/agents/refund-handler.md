@@ -1,7 +1,15 @@
 ---
+specVersion: "1.0"
 id: refund-handler
 name: Refund handler
 description: Process customer refund requests within the 30-day window.
+
+# ─── Marketplace metadata (required to publish) ───
+publisher: flowstate-examples
+version: 1.0.0
+license: MIT
+repository: github:flowstate/examples
+tags: [stripe, refunds, billing, hitl]
 
 trigger:
   kind: webhook
@@ -21,6 +29,22 @@ needs:
   - communication.chat.post
   - payment.refund.create
 
+# ─── Typed input contract ───
+inputs:
+  order_id:
+    type: string
+    required: true
+    description: The Stripe order id from the webhook payload.
+  reason:
+    type: string
+    required: true
+    description: Customer-supplied reason for the refund.
+
+# ─── Secrets the agent reads (keychain or env) ───
+secrets:
+  - STRIPE_API_KEY
+  - GMAIL_TOKEN
+
 budget:
   tokens: 50000
   usd: 0.50
@@ -34,6 +58,16 @@ permissions:
   env:
     - STRIPE_API_KEY
     - GMAIL_TOKEN
+  # Tool refs that ALWAYS pause for human approval — surfaces in the
+  # marketplace install screen + the run-time HITL banner.
+  approvalRequired:
+    - mcp:stripe.refunds.create
+
+# ─── Claude Agent SDK guardrails ───
+guardrails:
+  permissionMode: default       # default | acceptEdits | plan | bypassPermissions
+  maxTurns: 30
+  effort: medium
 
 # ─── Linked sections ──────────────────────────────────────────────────────
 # Each section either inlines its body or includes an external markdown file
