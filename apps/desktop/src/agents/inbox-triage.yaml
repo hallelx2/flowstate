@@ -1,0 +1,42 @@
+# inbox-triage.yaml
+# A minimal pure-YAML agent. Manual trigger — runs when you ask for it.
+
+id: inbox-triage
+name: Inbox triage
+description: Sort the unread morning email and draft replies for the easy ones.
+
+trigger:
+  kind: manual
+
+tools:
+  - mcp:gmail.messages.search
+  - mcp:gmail.messages.get
+  - mcp:gmail.labels.add
+  - mcp:gmail.drafts.create
+
+needs:
+  - communication.email.read
+  - communication.email.label
+  - communication.email.draft
+
+budget:
+  tokens: 30000
+  usd: 0.20
+
+permissions:
+  network:
+    - gmail.googleapis.com
+  env:
+    - GMAIL_TOKEN
+
+goal: |
+  Read every unread email from the last 24 hours. For each one:
+
+    1. Categorize: urgent / waiting-on-me / FYI / newsletter / spam
+    2. Apply the right Gmail label
+    3. For "waiting-on-me", draft a 2-3 sentence reply using the same tone as
+       my recent sent mail to that person — but DO NOT send. Leave as draft.
+    4. Move newsletters and obvious spam straight to their respective archives.
+
+  Finish with a one-paragraph summary of the count per category, plus the
+  three messages that most need my attention today.
