@@ -10,3 +10,6 @@ out/
 release/
 *.tsbuildinfo
 .turbo/
+
+# Claude Code session metadata
+.claude/
