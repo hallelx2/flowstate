@@ -4,12 +4,11 @@ import { LoadingScreen } from './components/splash/loading-screen';
 import { Shell } from './components/shell/shell';
 import { HomeView } from './components/home/home-view';
 import { ToolsPane } from './components/tools/tools-pane';
-import { AgentFlowView } from './components/flow/agent-flow-view';
 import { AgentsView } from './components/agents/agents-view';
 import { RunsView } from './components/runs/runs-view';
 import { SettingsView } from './components/settings/settings-view';
 
-export type View = 'home' | 'agents' | 'tools' | 'flow' | 'runs' | 'settings';
+export type View = 'home' | 'agents' | 'tools' | 'runs' | 'settings';
 
 export function App() {
   const [booting, setBooting] = useState(true);
@@ -46,13 +45,12 @@ export function App() {
               {view === 'home' && (
                 <HomeView
                   onOpenTools={() => setView('tools')}
-                  onOpenFlow={() => setView('flow')}
+                  onOpenRuns={() => setView('runs')}
                   onRunStarted={() => setView('runs')}
                 />
               )}
               {view === 'agents' && <AgentsView onRunStarted={() => setView('runs')} />}
               {view === 'tools' && <ToolsPane />}
-              {view === 'flow' && <AgentFlowView />}
               {view === 'runs' && <RunsView />}
               {view === 'settings' && <SettingsView />}
             </Shell>

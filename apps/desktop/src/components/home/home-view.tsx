@@ -1,12 +1,12 @@
 import { useState } from 'react';
 import { motion } from 'motion/react';
-import { Sparkles, ArrowUpRight, Wrench, Workflow, Plus, Command } from 'lucide-react';
+import { Sparkles, ArrowUpRight, Wrench, History, Plus, Command } from 'lucide-react';
 import { cn } from '@/lib/cn';
 import { startSdkRun } from '@/lib/sdk-runner';
 
 interface Props {
   onOpenTools: () => void;
-  onOpenFlow: () => void;
+  onOpenRuns: () => void;
   onRunStarted: () => void;
 }
 
@@ -31,7 +31,7 @@ const SUGGESTED = [
   },
 ];
 
-export function HomeView({ onOpenTools, onOpenFlow, onRunStarted }: Props) {
+export function HomeView({ onOpenTools, onOpenRuns, onRunStarted }: Props) {
   const [draft, setDraft] = useState('');
   const greeting = useGreeting();
 
@@ -113,7 +113,7 @@ export function HomeView({ onOpenTools, onOpenFlow, onRunStarted }: Props) {
             <div className="flex items-center justify-between border-t border-stone-subtle bg-paper-sunken px-3 py-2">
               <div className="flex items-center gap-1">
                 <ChipButton icon={<Wrench size={11} />} label="tools" onClick={onOpenTools} />
-                <ChipButton icon={<Workflow size={11} />} label="flow" onClick={onOpenFlow} />
+                <ChipButton icon={<History size={11} />} label="runs" onClick={onOpenRuns} />
                 <ChipButton icon={<Plus size={11} />} label="attach" />
               </div>
 

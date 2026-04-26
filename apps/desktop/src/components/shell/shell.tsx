@@ -1,5 +1,5 @@
 import type { ReactNode } from 'react';
-import { Home, Bot, Wrench, Workflow, History, Settings } from 'lucide-react';
+import { Home, Bot, Wrench, History, Settings } from 'lucide-react';
 import { cn } from '@/lib/cn';
 import type { View } from '@/App';
 import { FlowstateMark } from '@/components/brand/flowstate-mark';
@@ -8,8 +8,7 @@ const NAV: Array<{ id: View; label: string; icon: typeof Home }> = [
   { id: 'home', label: 'Home', icon: Home },
   { id: 'agents', label: 'Agents', icon: Bot },
   { id: 'tools', label: 'Tools', icon: Wrench },
-  { id: 'flow', label: 'Flow', icon: Workflow },
-  { id: 'runs', label: 'Runs', icon: History },
+  { id: 'runs', label: 'Runs · Flow', icon: History },
   { id: 'settings', label: 'Settings', icon: Settings },
 ];
 
