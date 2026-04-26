@@ -1,10 +1,14 @@
 import { app, BrowserWindow, shell, ipcMain } from 'electron';
 import { join } from 'node:path';
 import { fileURLToPath } from 'node:url';
+import { runAgent, type RuntimeRunRequest } from './agent-runtime';
 
 const __dirname = fileURLToPath(new URL('.', import.meta.url));
 
 const isDev = !app.isPackaged;
+
+/** Track in-flight runs so we can cancel via IPC. */
+const inFlight = new Map<string, AbortController>();
 
 function createMainWindow(): BrowserWindow {
   const win = new BrowserWindow({
@@ -13,11 +17,11 @@ function createMainWindow(): BrowserWindow {
     minWidth: 980,
     minHeight: 640,
     show: false,
-    backgroundColor: '#FAF7F2',
+    backgroundColor: '#FFFFFF',
     titleBarStyle: process.platform === 'darwin' ? 'hiddenInset' : 'hidden',
     titleBarOverlay:
       process.platform !== 'darwin'
-        ? { color: '#FAF7F2', symbolColor: '#1A1817', height: 36 }
+        ? { color: '#FFFFFF', symbolColor: '#000000', height: 36 }
         : undefined,
     trafficLightPosition: { x: 14, y: 14 },
     webPreferences: {
@@ -46,7 +50,7 @@ function createMainWindow(): BrowserWindow {
 }
 
 app.whenReady().then(() => {
-  // System info IPC — exposed to renderer through preload
+  // ─── System info ──────────────────────────────────────────────────────
   ipcMain.handle('flowstate:platform', () => ({
     platform: process.platform,
     arch: process.arch,
@@ -54,6 +58,33 @@ app.whenReady().then(() => {
     node: process.versions.node,
     electron: process.versions.electron,
   }));
+
+  // ─── Agent runtime IPC ────────────────────────────────────────────────
+  // Renderer calls flowstate.runAgent({ runId, prompt, ... }) → main spawns
+  // the SDK + streams events back via `agent:event`. Renderer adapts those
+  // events into runStore mutations (see lib/sdk-runner.ts).
+
+  ipcMain.handle('agent:run', async (event, req: RuntimeRunRequest) => {
+    const controller = new AbortController();
+    inFlight.set(req.runId, controller);
+    try {
+      await runAgent({ ...req, abortSignal: controller.signal }, (ev) => {
+        event.sender.send('agent:event', ev);
+      });
+    } finally {
+      inFlight.delete(req.runId);
+    }
+  });
+
+  ipcMain.handle('agent:cancel', (_event, runId: string) => {
+    const ctrl = inFlight.get(runId);
+    if (ctrl) {
+      ctrl.abort();
+      inFlight.delete(runId);
+      return true;
+    }
+    return false;
+  });
 
   createMainWindow();
 
