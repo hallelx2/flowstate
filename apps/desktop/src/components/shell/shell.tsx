@@ -2,6 +2,7 @@ import type { ReactNode } from 'react';
 import { Home, Bot, Wrench, Workflow, History, Settings } from 'lucide-react';
 import { cn } from '@/lib/cn';
 import type { View } from '@/App';
+import { FlowstateMark } from '@/components/brand/flowstate-mark';
 
 const NAV: Array<{ id: View | 'runs' | 'settings'; label: string; icon: typeof Home }> = [
   { id: 'home', label: 'Home', icon: Home },
@@ -24,6 +25,7 @@ export function Shell({ active, onNavigate, children }: ShellProps) {
       {/* Title bar — pure white, hairline border */}
       <header className="app-drag flex h-9 shrink-0 items-center justify-between border-b border-stone-subtle bg-paper px-4">
         <div className="flex items-center gap-2 pl-16 sm:pl-20">
+          <FlowstateMark size={16} className="rounded-[3.5px]" />
           <span className="font-display text-sm tracking-tight text-ink">
             <span className="italic font-light">flow</span>state
           </span>

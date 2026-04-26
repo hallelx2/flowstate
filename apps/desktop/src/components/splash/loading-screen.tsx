@@ -1,5 +1,6 @@
 import { useEffect, useState } from 'react';
 import { motion } from 'motion/react';
+import { FlowstateMark } from '@/components/brand/flowstate-mark';
 
 /**
  * The boot sequence — Cohere drama in restraint.
@@ -55,8 +56,8 @@ export function LoadingScreen() {
           transition={{ duration: 0.8, delay: 0.3 }}
           className="absolute left-10 top-8 flex items-center gap-2.5 text-paper/80"
         >
-          <span className="block h-2 w-2 rounded-sm bg-paper" />
-          <span className="font-mono text-2xs uppercase tracking-codeWide">
+          <FlowstateMark size={20} filled={false} className="text-paper opacity-90" />
+          <span className="font-mono text-2xs uppercase tracking-code-wide">
             FLOWSTATE&nbsp;&nbsp;·&nbsp;&nbsp;V0.1.0&nbsp;&nbsp;·&nbsp;&nbsp;LOCAL
           </span>
         </motion.div>

@@ -1,0 +1,33 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 64 64" role="img" aria-label="flowstate">
+  <defs>
+    <linearGradient id="fs-bg" x1="0%" y1="0%" x2="100%" y2="100%">
+      <stop offset="0%" stop-color="hsl(282, 32%, 22%)" />
+      <stop offset="60%" stop-color="hsl(280, 38%, 12%)" />
+      <stop offset="100%" stop-color="hsl(220, 22%, 8%)" />
+    </linearGradient>
+    <radialGradient id="fs-halo" cx="80%" cy="20%" r="55%">
+      <stop offset="0%" stop-color="hsl(282, 60%, 70%)" stop-opacity="0.35" />
+      <stop offset="100%" stop-color="hsl(282, 60%, 70%)" stop-opacity="0" />
+    </radialGradient>
+  </defs>
+
+  <!-- Cohere hero background, 14px radius (= 22px on a 100px square) -->
+  <rect width="64" height="64" rx="14" fill="url(#fs-bg)" />
+  <rect width="64" height="64" rx="14" fill="url(#fs-halo)" />
+
+  <!-- Sigmoid flow curve — input → output -->
+  <path
+    d="M 12 22 C 22 22, 24 42, 32 42 S 42 22, 52 22"
+    stroke="hsl(0, 0%, 98%)"
+    stroke-width="3.25"
+    fill="none"
+    stroke-linecap="round"
+    opacity="0.92"
+  />
+
+  <!-- Input node — quiet -->
+  <circle cx="12" cy="22" r="2.75" fill="hsl(0, 0%, 98%)" opacity="0.5" />
+
+  <!-- Output node — Cohere Ring Blue (signal arrived) -->
+  <circle cx="52" cy="22" r="3.5" fill="hsl(228, 72%, 60%)" />
+</svg>
