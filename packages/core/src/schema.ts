@@ -77,6 +77,38 @@ export const ToolRefSchema = z.string().regex(TOOL_REF_RE, 'Expected `provider:i
 const CAPABILITY_RE = /^[a-z][a-z0-9_]*(\.[a-z][a-z0-9_]*)+$/;
 export const CapabilitySchema = z.string().regex(CAPABILITY_RE, 'Expected dotted capability path');
 
+// ─── Sections · the linked-file structure ─────────────────────────────────
+// A master agent file can either inline its sections or reference external
+// markdown files (one rule per file, one step per file, etc.). The loader
+// resolves `include:` paths against the parent agent's directory and inlines
+// the content into the canonical AST.
+
+/** A section's source — inline string OR `{ include: "./path/to/file.md" }`. */
+export const SectionSourceSchema = z.union([
+  z.string(),
+  z.object({ include: z.string().min(1) }),
+]);
+
+export const RuleSchema = z.object({
+  title: z.string().min(1),
+  body: SectionSourceSchema,
+  /** Tool refs or capabilities this rule governs (optional, for filtering). */
+  appliesTo: z.array(z.string()).optional(),
+});
+
+export const StepSchema = z.object({
+  id: z.string().optional(),
+  title: z.string().min(1),
+  body: SectionSourceSchema,
+});
+
+export const SectionsSchema = z.object({
+  goal: SectionSourceSchema.optional(),
+  rules: z.array(RuleSchema).optional(),
+  steps: z.array(StepSchema).optional(),
+  onFailure: SectionSourceSchema.optional(),
+});
+
 // ─── Agent metadata ───────────────────────────────────────────────────────
 // What lives in YAML frontmatter (md) or at the top level (yaml).
 
@@ -97,9 +129,16 @@ export const AgentMetaSchema = z.object({
 
   budget: BudgetSchema.optional(),
   permissions: PermissionsSchema.optional(),
+
+  /** Linked-file structure — goal, rules, steps, on_failure */
+  sections: SectionsSchema.optional(),
 });
 
 export type AgentMeta = z.infer<typeof AgentMetaSchema>;
 export type Trigger = z.infer<typeof TriggerSchema>;
 export type Budget = z.infer<typeof BudgetSchema>;
 export type Permissions = z.infer<typeof PermissionsSchema>;
+export type SectionSource = z.infer<typeof SectionSourceSchema>;
+export type Rule = z.infer<typeof RuleSchema>;
+export type Step = z.infer<typeof StepSchema>;
+export type Sections = z.infer<typeof SectionsSchema>;
