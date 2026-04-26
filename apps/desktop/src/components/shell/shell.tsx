@@ -4,7 +4,7 @@ import { cn } from '@/lib/cn';
 import type { View } from '@/App';
 import { FlowstateMark } from '@/components/brand/flowstate-mark';
 
-const NAV: Array<{ id: View | 'runs' | 'settings'; label: string; icon: typeof Home }> = [
+const NAV: Array<{ id: View; label: string; icon: typeof Home }> = [
   { id: 'home', label: 'Home', icon: Home },
   { id: 'agents', label: 'Agents', icon: Bot },
   { id: 'tools', label: 'Tools', icon: Wrench },
@@ -44,7 +44,7 @@ export function Shell({ active, onNavigate, children }: ShellProps) {
         <nav className="flex w-16 shrink-0 flex-col items-center gap-1 border-r border-stone-subtle bg-paper-sunken py-3">
           {NAV.map(({ id, label, icon: Icon }) => {
             const isActive = id === active;
-            const isImplemented = id === 'home' || id === 'agents' || id === 'tools' || id === 'flow';
+            const isImplemented = true; // all six views are now wired
             return (
               <button
                 key={id}

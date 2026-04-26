@@ -19,17 +19,25 @@ import type {
 } from '@flowstate/core';
 import { cn } from '@/lib/cn';
 import { MarkdownView } from '@/components/prose/markdown-view';
-import { CodeView } from '@/components/prose/code-view';
+import { SourceEditor } from '@/components/prose/source-editor';
 import { triggerLabel, toolRefDisplay } from './agent-meta';
+import { startMockRun } from '@/lib/mock-runner';
+import { Pencil, Save, Undo2 } from 'lucide-react';
 
 type Tab = 'inspector' | 'source';
 
 interface Props {
   agent: Agent;
+  onRunStarted?: () => void;
 }
 
-export function AgentDetail({ agent }: Props) {
+export function AgentDetail({ agent, onRunStarted }: Props) {
   const [tab, setTab] = useState<Tab>('inspector');
+
+  const handleRun = () => {
+    startMockRun({ agentId: agent.id, agentName: agent.name });
+    onRunStarted?.();
+  };
 
   return (
     <motion.article
@@ -39,7 +47,7 @@ export function AgentDetail({ agent }: Props) {
       transition={{ duration: 0.3 }}
       className="flex h-full flex-col overflow-hidden"
     >
-      <Header agent={agent} tab={tab} onTabChange={setTab} />
+      <Header agent={agent} tab={tab} onTabChange={setTab} onRun={handleRun} />
       <div className="flex-1 overflow-hidden">
         {tab === 'inspector' ? <Inspector agent={agent} /> : <Source agent={agent} />}
       </div>
@@ -53,10 +61,12 @@ function Header({
   agent,
   tab,
   onTabChange,
+  onRun,
 }: {
   agent: Agent;
   tab: Tab;
   onTabChange: (t: Tab) => void;
+  onRun: () => void;
 }) {
   return (
     <header className="shrink-0 border-b border-stone-subtle bg-paper px-10 pb-5 pt-9">
@@ -92,7 +102,7 @@ function Header({
           </p>
         </div>
 
-        <button className="btn-dark shrink-0">
+        <button onClick={onRun} className="btn-dark shrink-0">
           <Play size={11} />
           run
         </button>
@@ -430,7 +440,7 @@ interface SourceFile {
 }
 
 function Source({ agent }: { agent: Agent }) {
-  const files: SourceFile[] = useMemo(
+  const baseFiles: SourceFile[] = useMemo(
     () => [
       { path: agent.sourcePath, content: agent.raw, isMaster: true },
       ...agent.includedFiles.map((f) => ({ ...f, isMaster: false })),
@@ -438,41 +448,120 @@ function Source({ agent }: { agent: Agent }) {
     [agent],
   );
 
-  const [selectedPath, setSelectedPath] = useState<string>(files[0]!.path);
+  // In-memory edit overlay — { path → currentContent }. Persistence to disk
+  // is a future commit (needs IPC to the main process).
+  const [edits, setEdits] = useState<Record<string, string>>({});
+  const [editing, setEditing] = useState(false);
+  const [selectedPath, setSelectedPath] = useState<string>(baseFiles[0]!.path);
+
+  const files = useMemo(
+    () =>
+      baseFiles.map((f) => ({
+        ...f,
+        content: edits[f.path] ?? f.content,
+        dirty: edits[f.path] != null && edits[f.path] !== f.content,
+      })),
+    [baseFiles, edits],
+  );
+
   const selected = files.find((f) => f.path === selectedPath) ?? files[0]!;
+
+  const handleEditorChange = (newContent: string) => {
+    setEdits((e) => ({ ...e, [selected.path]: newContent }));
+  };
+
+  const handleSave = () => {
+    // TODO: IPC out to main process to write back to disk.
+    // For now, the edit lives in-memory; we just exit edit mode.
+    setEditing(false);
+  };
+
+  const handleRevert = () => {
+    setEdits((e) => {
+      const { [selected.path]: _omit, ...rest } = e;
+      return rest;
+    });
+  };
+
+  const dirtyCount = Object.keys(edits).filter(
+    (p) => edits[p] !== baseFiles.find((f) => f.path === p)?.content,
+  ).length;
 
   return (
     <div className="grid h-full grid-cols-[280px_1fr] overflow-hidden">
       <SourceTree
         files={files}
         selectedPath={selectedPath}
-        onSelect={setSelectedPath}
+        onSelect={(p) => {
+          setSelectedPath(p);
+          setEditing(false);
+        }}
       />
-      <div className="overflow-y-auto bg-paper">
-        <div className="sticky top-0 z-10 flex items-center justify-between border-b border-stone-subtle bg-paper-raised px-5 py-2">
+      <div className="flex flex-col overflow-hidden bg-paper">
+        <div className="flex shrink-0 items-center justify-between border-b border-stone-subtle bg-paper-raised px-5 py-2">
           <span className="flex items-center gap-2 font-mono text-2xs uppercase tracking-code text-ink-subtle">
             <FileCode size={11} />
             {selected.path.replace(/^\.\//, '')}
-          </span>
-          <span className="font-mono text-2xs uppercase tracking-code text-ink-subtle">
-            {selected.content.split('\n').length} lines
-            {selected.isMaster && (
-              <>
-                <span className="mx-2 opacity-50">·</span>master
-              </>
+            {selected.dirty && (
+              <span
+                className="ml-1 inline-block h-1.5 w-1.5 rounded-full bg-accent-500"
+                title="unsaved changes"
+              />
             )}
           </span>
+
+          <div className="flex items-center gap-2">
+            <span className="font-mono text-2xs uppercase tracking-code text-ink-subtle">
+              {selected.content.split('\n').length} lines
+              {selected.isMaster && (
+                <>
+                  <span className="mx-2 opacity-50">·</span>master
+                </>
+              )}
+              {dirtyCount > 0 && (
+                <>
+                  <span className="mx-2 opacity-50">·</span>
+                  {dirtyCount} dirty
+                </>
+              )}
+            </span>
+
+            {editing ? (
+              <>
+                {selected.dirty && (
+                  <button onClick={handleRevert} className="btn-outline px-2 py-1 text-2xs">
+                    <Undo2 size={10} />
+                    revert
+                  </button>
+                )}
+                <button onClick={handleSave} className="btn-dark px-2 py-1 text-2xs">
+                  <Save size={10} />
+                  save (in-memory)
+                </button>
+              </>
+            ) : (
+              <button onClick={() => setEditing(true)} className="btn-outline px-2 py-1 text-2xs">
+                <Pencil size={10} />
+                edit
+              </button>
+            )}
+          </div>
         </div>
-        <CodeView
-          code={selected.content}
-          language={detectLanguage(selected.path)}
-        />
+
+        <div className="flex-1 overflow-hidden">
+          <SourceEditor
+            content={selected.content}
+            language={detectLanguage(selected.path)}
+            editing={editing}
+            onChange={handleEditorChange}
+          />
+        </div>
       </div>
     </div>
   );
 }
 
-function detectLanguage(path: string): string {
+function detectLanguage(path: string): 'yaml' | 'markdown' | 'plaintext' {
   if (/\.ya?ml$/i.test(path)) return 'yaml';
   if (/\.markdown$|\.md$/i.test(path)) return 'markdown';
   return 'plaintext';

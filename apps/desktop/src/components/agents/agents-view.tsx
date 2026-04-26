@@ -4,7 +4,11 @@ import { AGENTS } from '@/agents';
 import { AgentList } from './agent-list';
 import { AgentDetail } from './agent-detail';
 
-export function AgentsView() {
+interface AgentsViewProps {
+  onRunStarted?: () => void;
+}
+
+export function AgentsView({ onRunStarted }: AgentsViewProps = {}) {
   const [selectedId, setSelectedId] = useState<string | null>(AGENTS[0]?.id ?? null);
   const [query, setQuery] = useState('');
 
@@ -63,7 +67,7 @@ export function AgentsView() {
       {/* ─── Right pane · detail ─── */}
       <main className="flex-1 overflow-hidden">
         {selected ? (
-          <AgentDetail agent={selected} />
+          <AgentDetail agent={selected} onRunStarted={onRunStarted} />
         ) : (
           <div className="flex h-full flex-col items-center justify-center text-center">
             <h2 className="font-display text-2xl text-ink">No agent selected</h2>

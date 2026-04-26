@@ -2,10 +2,12 @@ import { useState } from 'react';
 import { motion } from 'motion/react';
 import { Sparkles, ArrowUpRight, Wrench, Workflow, Plus, Command } from 'lucide-react';
 import { cn } from '@/lib/cn';
+import { startMockRun } from '@/lib/mock-runner';
 
 interface Props {
   onOpenTools: () => void;
   onOpenFlow: () => void;
+  onRunStarted: () => void;
 }
 
 const SUGGESTED = [
@@ -29,9 +31,27 @@ const SUGGESTED = [
   },
 ];
 
-export function HomeView({ onOpenTools, onOpenFlow }: Props) {
+export function HomeView({ onOpenTools, onOpenFlow, onRunStarted }: Props) {
   const [draft, setDraft] = useState('');
   const greeting = useGreeting();
+
+  const handleStart = () => {
+    if (!draft.trim()) return;
+    startMockRun({
+      agentId: null, // ad-hoc run
+      agentName: 'Ad-hoc',
+      prompt: draft.trim(),
+    });
+    setDraft('');
+    onRunStarted();
+  };
+
+  const handleKeyDown = (e: React.KeyboardEvent<HTMLTextAreaElement>) => {
+    if ((e.metaKey || e.ctrlKey) && e.key === 'Enter') {
+      e.preventDefault();
+      handleStart();
+    }
+  };
 
   return (
     <div className="relative h-full w-full overflow-y-auto bg-paper">
@@ -79,6 +99,7 @@ export function HomeView({ onOpenTools, onOpenFlow }: Props) {
             <textarea
               value={draft}
               onChange={(e) => setDraft(e.target.value)}
+              onKeyDown={handleKeyDown}
               placeholder="Send a thank-you note to everyone who attended yesterday's webinar — pull the list from the Eventbrite export in Drive."
               rows={5}
               className={cn(
@@ -95,6 +116,7 @@ export function HomeView({ onOpenTools, onOpenFlow }: Props) {
               </div>
 
               <button
+                onClick={handleStart}
                 className={cn(
                   'group/btn inline-flex items-center gap-1.5 rounded-md px-3 py-1.5 text-xs font-medium transition-all',
                   draft.trim()

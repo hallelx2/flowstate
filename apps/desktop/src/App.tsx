@@ -6,8 +6,10 @@ import { HomeView } from './components/home/home-view';
 import { ToolsPane } from './components/tools/tools-pane';
 import { AgentFlowView } from './components/flow/agent-flow-view';
 import { AgentsView } from './components/agents/agents-view';
+import { RunsView } from './components/runs/runs-view';
+import { SettingsView } from './components/settings/settings-view';
 
-export type View = 'home' | 'agents' | 'tools' | 'flow';
+export type View = 'home' | 'agents' | 'tools' | 'flow' | 'runs' | 'settings';
 
 export function App() {
   const [booting, setBooting] = useState(true);
@@ -15,7 +17,6 @@ export function App() {
 
   useEffect(() => {
     // Mock boot sequence — replaced by real subsystem warm-up later
-    // (loading registry, MCP pool warm-up, auth checks, etc.)
     const t = setTimeout(() => setBooting(false), 2400);
     return () => clearTimeout(t);
   }, []);
@@ -42,10 +43,18 @@ export function App() {
             className="absolute inset-0"
           >
             <Shell active={view} onNavigate={setView}>
-              {view === 'home' && <HomeView onOpenTools={() => setView('tools')} onOpenFlow={() => setView('flow')} />}
-              {view === 'agents' && <AgentsView />}
+              {view === 'home' && (
+                <HomeView
+                  onOpenTools={() => setView('tools')}
+                  onOpenFlow={() => setView('flow')}
+                  onRunStarted={() => setView('runs')}
+                />
+              )}
+              {view === 'agents' && <AgentsView onRunStarted={() => setView('runs')} />}
               {view === 'tools' && <ToolsPane />}
               {view === 'flow' && <AgentFlowView />}
+              {view === 'runs' && <RunsView />}
+              {view === 'settings' && <SettingsView />}
             </Shell>
           </motion.div>
         )}
