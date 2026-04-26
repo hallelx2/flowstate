@@ -13,6 +13,8 @@ import {
 } from 'lucide-react';
 import { cn } from '@/lib/cn';
 import { FlowstateMark } from '@/components/brand/flowstate-mark';
+import { ClaudeMark } from '@/components/brand/claude-mark';
+import { ModelPicker, CLAUDE_MODELS } from './model-picker';
 
 type Section =
   | 'account'
@@ -99,6 +101,9 @@ export function SettingsView() {
 
 function AccountSection() {
   const [provider, setProvider] = useState<'subscription' | 'api' | 'local'>('subscription');
+  const [model, setModel] = useState<string>(CLAUDE_MODELS[0]!.id); // Opus 4.7 default
+  const [favorites, setFavorites] = useState<string[]>(['claude-opus-4-7']);
+
   return (
     <Section
       title="Account & model"
@@ -113,11 +118,13 @@ function AccountSection() {
               value: 'subscription',
               title: 'Claude subscription (recommended)',
               sub: "Uses your local Claude Code auth. No API key needed. Doesn't count against API spend.",
+              icon: <ClaudeMark size={14} />,
             },
             {
               value: 'api',
               title: 'Anthropic API key',
               sub: 'Pay per token. Best for shared / hosted workspaces.',
+              icon: <ClaudeMark size={14} />,
             },
             {
               value: 'local',
@@ -151,16 +158,18 @@ function AccountSection() {
         </>
       )}
 
-      <Field label="Default model">
-        <Select
-          options={[
-            { value: 'claude-opus-4-5', label: 'Claude Opus 4.5 (highest reasoning)' },
-            { value: 'claude-sonnet-4-7', label: 'Claude Sonnet 4.7 (balanced)' },
-            { value: 'claude-haiku-4-5', label: 'Claude Haiku 4.5 (fastest)' },
-          ]}
-          defaultValue="claude-sonnet-4-7"
-        />
-      </Field>
+      {provider !== 'local' && (
+        <Field label="Default model" hint="The model your agents use unless they override it in their frontmatter.">
+          <ModelPicker
+            value={model}
+            onChange={setModel}
+            favorites={favorites}
+            onToggleFavorite={(id) =>
+              setFavorites((f) => (f.includes(id) ? f.filter((x) => x !== id) : [...f, id]))
+            }
+          />
+        </Field>
+      )}
 
       <Field label="Connection status">
         <div className="flex items-center gap-2 rounded-md border border-stone bg-paper-sunken px-3 py-2">
@@ -518,7 +527,13 @@ function RadioGroup({
 }: {
   value: string;
   onChange: (v: string) => void;
-  options: { value: string; title: string; sub?: string; disabled?: boolean }[];
+  options: {
+    value: string;
+    title: string;
+    sub?: string;
+    disabled?: boolean;
+    icon?: React.ReactNode;
+  }[];
 }) {
   return (
     <div className="space-y-2">
@@ -545,8 +560,11 @@ function RadioGroup({
             >
               {isSelected && <span className="h-1.5 w-1.5 rounded-full bg-paper" />}
             </span>
-            <div className="min-w-0">
-              <div className="text-sm text-ink">{opt.title}</div>
+            <div className="min-w-0 flex-1">
+              <div className="flex items-center gap-2">
+                {opt.icon && <span className="shrink-0">{opt.icon}</span>}
+                <span className="text-sm text-ink">{opt.title}</span>
+              </div>
               {opt.sub && <div className="mt-0.5 text-xs text-ink-muted">{opt.sub}</div>}
             </div>
           </button>
