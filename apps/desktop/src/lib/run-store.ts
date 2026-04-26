@@ -7,6 +7,20 @@ import type { RunStep } from '@flowstate/core';
  * this keeps the UI honest while we wire that up.
  */
 
+/**
+ * Pending tool-approval request — populated when an agent wants to invoke
+ * a tool that requires human-in-the-loop confirmation. UI surfaces a
+ * banner; user resolves via runStore.resolveApproval(runId, approved).
+ */
+export interface PendingApproval {
+  stepId: string;
+  toolId: string;
+  toolAction?: string;
+  inputs?: Record<string, unknown>;
+  message: string;
+  requestedAt: string;
+}
+
 export interface Run {
   id: string;
   /** null for ad-hoc runs (composer-driven) */
@@ -24,6 +38,8 @@ export interface Run {
     costUsd: number;
     durationMs: number;
   };
+  /** When set, the run is paused waiting for the user to approve/deny a tool call. */
+  pendingApproval?: PendingApproval;
 }
 
 type Listener = () => void;
@@ -32,6 +48,8 @@ class RunStore {
   private runs: Run[] = [];
   private listeners = new Set<Listener>();
   private cachedSnapshot: Run[] = [];
+  /** Pending-approval resolver promises, keyed by runId. */
+  private pendingResolvers = new Map<string, (approved: boolean) => void>();
 
   subscribe = (cb: Listener): (() => void) => {
     this.listeners.add(cb);
@@ -83,6 +101,34 @@ class RunStore {
             ...r,
             steps: r.steps.map((s) => (s.id === stepId ? { ...s, ...patch } : s)),
           },
+    );
+    this.refresh();
+  }
+
+  /**
+   * Request a human-in-the-loop approval. Returns a Promise that resolves
+   * to true (approve) or false (deny) when the user clicks the banner.
+   * The caller (mock-runner / sdk-runner) awaits this before continuing.
+   */
+  requestApproval(runId: string, approval: PendingApproval): Promise<boolean> {
+    return new Promise((resolve) => {
+      this.pendingResolvers.set(runId, resolve);
+      this.runs = this.runs.map((r) =>
+        r.id === runId ? { ...r, pendingApproval: approval } : r,
+      );
+      this.refresh();
+    });
+  }
+
+  /** UI calls this when the user clicks Approve / Deny. */
+  resolveApproval(runId: string, approved: boolean): void {
+    const resolver = this.pendingResolvers.get(runId);
+    if (resolver) {
+      resolver(approved);
+      this.pendingResolvers.delete(runId);
+    }
+    this.runs = this.runs.map((r) =>
+      r.id === runId ? { ...r, pendingApproval: undefined } : r,
     );
     this.refresh();
   }

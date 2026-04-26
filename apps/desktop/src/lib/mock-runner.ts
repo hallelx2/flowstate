@@ -20,6 +20,10 @@ interface PlannedStep {
   duration: number;
   tokens?: number;
   costUsd?: number;
+  /** Block on a human approval before "running" begins. */
+  needsApproval?: boolean;
+  /** Inputs payload to surface in the approval banner. */
+  inputs?: Record<string, unknown>;
 }
 
 const ADHOC_PLAN: PlannedStep[] = [
@@ -36,7 +40,22 @@ const REFUND_PLAN: PlannedStep[] = [
   { kind: 'thinking', label: 'Verify request is in 30-day window', detail: 'Reading order metadata, checking purchase date', duration: 1840, tokens: 1100 },
   { kind: 'tool_call', label: 'Fetch customer record', detail: 'Look up the buyer in Stripe', toolId: 'mcp:stripe.customers.retrieve', duration: 410, tokens: 180 },
   { kind: 'tool_call', label: 'Fetch original payment intent', toolId: 'mcp:stripe.charges.list', duration: 380, tokens: 220 },
-  { kind: 'tool_call', label: 'Issue refund', detail: '$48.00 USD · reason: customer_request', toolId: 'mcp:stripe.refunds.create', duration: 920, tokens: 140 },
+  // ↓ HITL: refund is a destructive action — pause for user approval first.
+  {
+    kind: 'tool_call',
+    label: 'Issue refund',
+    detail: '$48.00 USD · reason: customer_request',
+    toolId: 'mcp:stripe.refunds.create',
+    duration: 920,
+    tokens: 140,
+    needsApproval: true,
+    inputs: {
+      payment_intent: 'pi_3OqXk2J4...',
+      amount: 4800,
+      reason: 'customer_request',
+      idempotency_key: 'refund:order_7421',
+    },
+  },
   { kind: 'tool_call', label: 'Email confirmation to customer', toolId: 'mcp:gmail.messages.send', duration: 650, tokens: 240 },
   { kind: 'tool_call', label: 'Post to #ops-billing', toolId: 'composio:slack.chat.post', duration: 320, tokens: 90 },
   { kind: 'done', label: 'Run complete', duration: 50 },
@@ -77,6 +96,33 @@ async function executePlan(runId: string, plan: PlannedStep[], startedAt: number
       startedAt: new Date().toISOString(),
     };
     runStore.appendStep(runId, step);
+
+    // Human-in-the-loop: pause + ask before destructive actions.
+    if (planned.needsApproval && planned.toolId) {
+      runStore.updateStep(runId, step.id, { status: 'pending', detail: 'Awaiting your approval' });
+      const approved = await runStore.requestApproval(runId, {
+        stepId: step.id,
+        toolId: planned.toolId,
+        toolAction: planned.toolAction,
+        inputs: planned.inputs,
+        message: `${planned.label}${planned.detail ? ` — ${planned.detail}` : ''}`,
+        requestedAt: new Date().toISOString(),
+      });
+      if (!approved) {
+        runStore.updateStep(runId, step.id, {
+          status: 'failed',
+          detail: 'Denied by user',
+          endedAt: new Date().toISOString(),
+        });
+        runStore.update(runId, {
+          status: 'cancelled',
+          endedAt: new Date().toISOString(),
+        });
+        return;
+      }
+      // Restore running state + the original detail before the wait
+      runStore.updateStep(runId, step.id, { status: 'running', detail: planned.detail });
+    }
 
     await sleep(planned.duration);
 

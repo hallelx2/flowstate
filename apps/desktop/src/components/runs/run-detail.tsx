@@ -8,12 +8,13 @@ import {
   type Node,
 } from '@xyflow/react';
 import '@xyflow/react/dist/style.css';
-import { motion } from 'motion/react';
+import { motion, AnimatePresence } from 'motion/react';
 import { Pause, RotateCcw, X as XIcon } from 'lucide-react';
 import type { Run } from '@/lib/run-store';
 import { FlowNode, type FlowNodeData } from '@/components/flow/nodes';
 import { formatDuration, statusDotColor, statusLabel } from './run-utils';
 import { cn } from '@/lib/cn';
+import { ApprovalBanner } from './approval-banner';
 
 const nodeTypes = { flow: FlowNode };
 
@@ -26,6 +27,13 @@ export function RunDetail({ run }: Props) {
 
   return (
     <div className="flex h-full flex-col overflow-hidden">
+      {/* Human-in-the-loop approval banner — only shown while waiting */}
+      <AnimatePresence>
+        {run.pendingApproval && (
+          <ApprovalBanner runId={run.id} approval={run.pendingApproval} />
+        )}
+      </AnimatePresence>
+
       {/* Header */}
       <header className="shrink-0 border-b border-stone-subtle bg-paper px-10 pb-5 pt-9">
         <div className="flex items-center gap-2">
