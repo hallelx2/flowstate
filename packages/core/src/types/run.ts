@@ -3,6 +3,7 @@
  */
 
 export type StepKind =
+  | 'trigger'
   | 'thinking'
   | 'tool_call'
   | 'tool_result'
