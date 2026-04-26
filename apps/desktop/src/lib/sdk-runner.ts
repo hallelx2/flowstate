@@ -37,6 +37,33 @@ export function startSdkRun(opts: StartOpts): Run {
   // Track which step IDs we've already created so updates land on the right object
   const knownSteps = new Set<string>();
 
+  // ─── HITL: forward SDK approval requests to the runStore + back ──────
+  // When the SDK wants to invoke a tool, the main process emits an
+  // approval-request event. We translate it into a runStore.requestApproval
+  // call (which surfaces the banner UI), wait for the user, then send the
+  // decision back through respondToApproval — which resolves the Promise
+  // the SDK is awaiting in the main process.
+  const unsubApproval = window.flowstate.onApprovalRequest(async (req) => {
+    if (req.runId !== run.id) return;
+    const stepId = req.toolUseID;
+    const approved = await runStore.requestApproval(run.id, {
+      stepId,
+      toolId: req.toolName,
+      inputs: req.input,
+      message:
+        req.title ??
+        `Claude wants to use ${req.displayName ?? req.toolName}.${
+          req.description ? ` ${req.description}` : ''
+        }`,
+      requestedAt: new Date().toISOString(),
+    });
+    await window.flowstate.respondToApproval({
+      toolUseID: req.toolUseID,
+      approved,
+      message: approved ? undefined : 'Denied by user',
+    });
+  });
+
   const unsub = window.flowstate.onAgentEvent((ev) => {
     if (ev.runId !== run.id) return;
 
@@ -77,6 +104,7 @@ export function startSdkRun(opts: StartOpts): Run {
         totals: ev.totals ?? run.totals,
       });
       unsub();
+      unsubApproval();
       return;
     }
 
@@ -87,6 +115,7 @@ export function startSdkRun(opts: StartOpts): Run {
         totals: ev.totals ?? run.totals,
       });
       unsub();
+      unsubApproval();
     }
   });
 
@@ -103,6 +132,7 @@ export function startSdkRun(opts: StartOpts): Run {
     .catch((err) => {
       console.warn('[sdk-runner] SDK invocation failed, falling back to mock', err);
       unsub();
+      unsubApproval();
 
       // If the SDK call never produced any steps, the run looks "stuck queued".
       // Mark the original run as failed with the SDK error...

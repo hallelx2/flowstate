@@ -3,6 +3,7 @@ import { join, normalize, resolve, sep } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { mkdir, readFile, writeFile } from 'node:fs/promises';
 import { existsSync } from 'node:fs';
+import type { PermissionResult } from '@anthropic-ai/claude-agent-sdk';
 import { runAgent, type RuntimeRunRequest } from './agent-runtime';
 
 const __dirname = fileURLToPath(new URL('.', import.meta.url));
@@ -11,6 +12,13 @@ const isDev = !app.isPackaged;
 
 /** Track in-flight runs so we can cancel via IPC. */
 const inFlight = new Map<string, AbortController>();
+
+/**
+ * Pending permission requests, keyed by toolUseID. The SDK's canUseTool
+ * callback returns a Promise; we hold its resolver here while we round-trip
+ * through the renderer for human approval.
+ */
+const pendingApprovals = new Map<string, (result: PermissionResult) => void>();
 
 /**
  * Where agent files live on disk.
@@ -97,8 +105,33 @@ app.whenReady().then(() => {
   ipcMain.handle('agent:run', async (event, req: RuntimeRunRequest) => {
     const controller = new AbortController();
     inFlight.set(req.runId, controller);
+
+    // Build a canUseTool callback that proxies the SDK's permission prompt
+    // through IPC to the renderer for human approval. The renderer responds
+    // via the agent:approval-response handler below.
+    const canUseTool: NonNullable<RuntimeRunRequest['canUseTool']> = async (
+      toolName,
+      input,
+      options,
+    ) => {
+      return new Promise<PermissionResult>((resolveResult) => {
+        pendingApprovals.set(options.toolUseID, resolveResult);
+        event.sender.send('agent:approval-request', {
+          runId: req.runId,
+          toolUseID: options.toolUseID,
+          toolName,
+          input,
+          title: options.title,
+          displayName: options.displayName,
+          description: options.description,
+          decisionReason: options.decisionReason,
+          blockedPath: options.blockedPath,
+        });
+      });
+    };
+
     try {
-      await runAgent({ ...req, abortSignal: controller.signal }, (ev) => {
+      await runAgent({ ...req, abortSignal: controller.signal, canUseTool }, (ev) => {
         event.sender.send('agent:event', ev);
       });
     } finally {
@@ -115,6 +148,29 @@ app.whenReady().then(() => {
     }
     return false;
   });
+
+  /**
+   * The renderer calls this when the user clicks Approve / Deny on the
+   * approval banner. We resolve the SDK's pending Promise with the
+   * appropriate PermissionResult shape.
+   */
+  ipcMain.handle(
+    'agent:approval-response',
+    (
+      _event,
+      payload: { toolUseID: string; approved: boolean; message?: string },
+    ): boolean => {
+      const resolver = pendingApprovals.get(payload.toolUseID);
+      if (!resolver) return false;
+      resolver(
+        payload.approved
+          ? { behavior: 'allow' }
+          : { behavior: 'deny', message: payload.message ?? 'Denied by user' },
+      );
+      pendingApprovals.delete(payload.toolUseID);
+      return true;
+    },
+  );
 
   // ─── Agent file persistence ───────────────────────────────────────────
   // Dev: writes round-trip through vite HMR (you see the change reflect

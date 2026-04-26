@@ -40,6 +40,25 @@ export interface AgentEvent {
   error?: string;
 }
 
+/** Human-in-the-loop request the SDK sends through canUseTool. */
+export interface ApprovalRequest {
+  runId: string;
+  toolUseID: string;
+  toolName: string;
+  input: Record<string, unknown>;
+  title?: string;
+  displayName?: string;
+  description?: string;
+  decisionReason?: string;
+  blockedPath?: string;
+}
+
+export interface ApprovalResponse {
+  toolUseID: string;
+  approved: boolean;
+  message?: string;
+}
+
 const flowstateApi = {
   platform: (): Promise<PlatformInfo> => ipcRenderer.invoke('flowstate:platform'),
 
@@ -55,6 +74,20 @@ const flowstateApi = {
     ipcRenderer.on('agent:event', handler);
     return () => ipcRenderer.off('agent:event', handler);
   },
+
+  /**
+   * Subscribe to permission-approval requests from the SDK. Triggered when
+   * Claude wants to call a tool that needs user confirmation.
+   */
+  onApprovalRequest: (cb: (req: ApprovalRequest) => void): (() => void) => {
+    const handler = (_e: IpcRendererEvent, req: ApprovalRequest) => cb(req);
+    ipcRenderer.on('agent:approval-request', handler);
+    return () => ipcRenderer.off('agent:approval-request', handler);
+  },
+
+  /** Resolve a pending approval. The SDK's canUseTool Promise resolves here. */
+  respondToApproval: (payload: ApprovalResponse): Promise<boolean> =>
+    ipcRenderer.invoke('agent:approval-response', payload),
 
   // ─── Agent file persistence ───────────────────────────────────────────
 

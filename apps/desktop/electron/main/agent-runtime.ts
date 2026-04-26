@@ -19,7 +19,7 @@
  * renderer + the TODO notes in mock-runner.ts.
  */
 
-import { query, type SDKMessage } from '@anthropic-ai/claude-agent-sdk';
+import { query, type CanUseTool, type SDKMessage } from '@anthropic-ai/claude-agent-sdk';
 
 export interface RuntimeRunRequest {
   runId: string;
@@ -33,6 +33,8 @@ export interface RuntimeRunRequest {
   /** Model alias or full id. */
   model?: string;
   abortSignal?: AbortSignal;
+  /** Human-in-the-loop callback — SDK invokes this before each tool call. */
+  canUseTool?: CanUseTool;
 }
 
 export interface RuntimeEvent {
@@ -93,6 +95,7 @@ export async function runAgent(req: RuntimeRunRequest, emit: EventCallback): Pro
         cwd: req.cwd,
         allowedTools: req.allowedTools,
         systemPrompt: req.agentSystemPrompt,
+        canUseTool: req.canUseTool,
         abortController: req.abortSignal
           ? ({ signal: req.abortSignal } as unknown as AbortController)
           : undefined,
