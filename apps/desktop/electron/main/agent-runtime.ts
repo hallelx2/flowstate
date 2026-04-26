@@ -20,6 +20,7 @@
  */
 
 import { query, type CanUseTool, type SDKMessage } from '@anthropic-ai/claude-agent-sdk';
+import type { Guardrails, Permissions } from '@flowstate/core';
 
 export interface RuntimeRunRequest {
   runId: string;
@@ -35,6 +36,10 @@ export interface RuntimeRunRequest {
   abortSignal?: AbortSignal;
   /** Human-in-the-loop callback — SDK invokes this before each tool call. */
   canUseTool?: CanUseTool;
+  /** Agent's declared permissions (network/fs/env/approvalRequired). Enforced before HITL. */
+  permissions?: Permissions;
+  /** Agent's declared guardrails (mode/maxTurns/allowed/disallowed/effort). Mapped to SDK options. */
+  guardrails?: Guardrails;
 }
 
 export interface RuntimeEvent {
@@ -88,12 +93,21 @@ export async function runAgent(req: RuntimeRunRequest, emit: EventCallback): Pro
   emit({ runId: req.runId, type: 'started' });
 
   try {
+    // Guardrails → SDK options. Agent-declared takes precedence over caller-supplied.
+    const allowedTools = req.guardrails?.allowedTools ?? req.allowedTools;
+    const disallowedTools = req.guardrails?.disallowedTools;
+    const permissionMode = req.guardrails?.permissionMode;
+    const maxTurns = req.guardrails?.maxTurns;
+
     const iter = query({
       prompt: req.prompt,
       options: {
         model: req.model,
         cwd: req.cwd,
-        allowedTools: req.allowedTools,
+        allowedTools,
+        disallowedTools,
+        permissionMode,
+        maxTurns,
         systemPrompt: req.agentSystemPrompt,
         canUseTool: req.canUseTool,
         abortController: req.abortSignal

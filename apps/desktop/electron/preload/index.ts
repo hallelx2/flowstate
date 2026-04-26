@@ -15,6 +15,21 @@ export interface RunRequest {
   allowedTools?: string[];
   cwd?: string;
   model?: string;
+  /** Declared agent permissions — runtime enforces in canUseTool. */
+  permissions?: {
+    network?: string[];
+    fs?: { read?: string[]; write?: string[] };
+    env?: string[];
+    approvalRequired?: string[];
+  };
+  /** Declared agent guardrails — mapped to SDK query options. */
+  guardrails?: {
+    permissionMode?: 'default' | 'acceptEdits' | 'plan' | 'bypassPermissions';
+    maxTurns?: number;
+    allowedTools?: string[];
+    disallowedTools?: string[];
+    effort?: 'low' | 'medium' | 'high' | 'xhigh' | 'max' | number;
+  };
 }
 
 export interface AgentEvent {

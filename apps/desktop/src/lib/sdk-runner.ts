@@ -25,6 +25,21 @@ interface StartOpts {
   agentSystemPrompt?: string;
   allowedTools?: string[];
   model?: string;
+  /** Agent's declared permissions — enforced inside canUseTool in main. */
+  permissions?: {
+    network?: string[];
+    fs?: { read?: string[]; write?: string[] };
+    env?: string[];
+    approvalRequired?: string[];
+  };
+  /** Agent's declared guardrails — mapped to SDK query() options. */
+  guardrails?: {
+    permissionMode?: 'default' | 'acceptEdits' | 'plan' | 'bypassPermissions';
+    maxTurns?: number;
+    allowedTools?: string[];
+    disallowedTools?: string[];
+    effort?: 'low' | 'medium' | 'high' | 'xhigh' | 'max' | number;
+  };
 }
 
 export function startSdkRun(opts: StartOpts): Run {
@@ -128,6 +143,8 @@ export function startSdkRun(opts: StartOpts): Run {
       agentSystemPrompt: opts.agentSystemPrompt,
       allowedTools: opts.allowedTools,
       model: opts.model,
+      permissions: opts.permissions,
+      guardrails: opts.guardrails,
     })
     .catch((err) => {
       console.warn('[sdk-runner] SDK invocation failed, falling back to mock', err);

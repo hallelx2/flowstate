@@ -10,6 +10,8 @@ import {
   AlertTriangle,
   FileCode,
   ChevronRight,
+  Check,
+  CircleAlert,
 } from 'lucide-react';
 import type {
   Agent,
@@ -17,6 +19,8 @@ import type {
   ResolvedRule,
   ResolvedStep,
 } from '@flowstate/core';
+import { resolveCapabilities } from '@flowstate/core';
+import { FIXTURE_TOOLS } from '@/components/tools/fixtures';
 import { cn } from '@/lib/cn';
 import { MarkdownView } from '@/components/prose/markdown-view';
 import { SourceEditor } from '@/components/prose/source-editor';
@@ -41,9 +45,11 @@ export function AgentDetail({ agent, onRunStarted }: Props) {
       agentName: agent.name,
       prompt: defaultUserPrompt(agent),
       agentSystemPrompt: assembleSystemPrompt(agent),
+      // Threaded through to main-process canUseTool gate:
+      permissions: agent.permissions,
+      guardrails: agent.guardrails,
       // TODO: translate agent.tools (mcp:gmail.send / cli:gh.pr.create / etc.)
-      // into the SDK's allowedTools shape. For now: undefined = all built-in
-      // SDK tools available.
+      // into the SDK's allowedTools shape. For now: undefined = SDK built-ins.
     });
     onRunStarted?.();
   };
@@ -364,19 +370,65 @@ function ToolsCard({ agent }: { agent: Agent }) {
 }
 
 function CapabilitiesCard({ needs }: { needs: string[] }) {
+  // Run the pure resolver against the in-memory tool registry (FIXTURE_TOOLS
+  // for now — disk-based registry comes later). Each capability becomes
+  // either a resolved chip (with the picked tool tooltip) or an unresolved
+  // warning chip.
+  const resolution = useMemo(() => resolveCapabilities(needs, FIXTURE_TOOLS), [needs]);
+  const resolvedSet = new Map(resolution.resolved.map((r) => [r.capability, r]));
+  const unresolvedSet = new Set(resolution.unresolved);
+
   return (
     <section>
-      <p className="eyebrow mb-2">capabilities · {needs.length}</p>
-      <div className="flex flex-wrap gap-1.5">
-        {needs.map((cap) => (
-          <span
-            key={cap}
-            className="rounded-sm border border-stone-subtle bg-paper-sunken px-2 py-0.5 font-mono text-2xs text-ink-muted"
-          >
-            {cap}
-          </span>
-        ))}
+      <div className="mb-2 flex items-center justify-between">
+        <p className="eyebrow">capabilities · {needs.length}</p>
+        <span className="font-mono text-2xs text-ink-subtle">
+          {resolution.resolved.length}/{needs.length} resolved
+        </span>
       </div>
+
+      <div className="flex flex-wrap gap-1.5">
+        {needs.map((cap) => {
+          const r = resolvedSet.get(cap);
+          const isUnresolved = unresolvedSet.has(cap);
+          return (
+            <span
+              key={cap}
+              title={
+                r
+                  ? `→ ${r.toolRef} (${r.reason})`
+                  : isUnresolved
+                    ? 'No installed tool advertises this capability'
+                    : ''
+              }
+              className={cn(
+                'inline-flex items-center gap-1 rounded-sm border px-2 py-0.5 font-mono text-2xs',
+                r
+                  ? 'border-stone-subtle bg-paper-sunken text-ink'
+                  : 'border-warn/40 bg-warn/10 text-ink-muted',
+              )}
+            >
+              {r ? (
+                <Check size={9} className="text-ok" strokeWidth={2.4} />
+              ) : (
+                <CircleAlert size={9} className="text-warn" strokeWidth={2.2} />
+              )}
+              {cap}
+            </span>
+          );
+        })}
+      </div>
+
+      {resolution.warnings.length > 0 && (
+        <ul className="mt-2 space-y-0.5 text-2xs text-warn">
+          {resolution.warnings.map((w) => (
+            <li key={w} className="flex items-center gap-1">
+              <CircleAlert size={9} className="shrink-0" />
+              {w}
+            </li>
+          ))}
+        </ul>
+      )}
     </section>
   );
 }

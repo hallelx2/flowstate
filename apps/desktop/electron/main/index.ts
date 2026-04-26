@@ -4,6 +4,7 @@ import { fileURLToPath } from 'node:url';
 import { mkdir, readFile, writeFile } from 'node:fs/promises';
 import { existsSync } from 'node:fs';
 import type { PermissionResult } from '@anthropic-ai/claude-agent-sdk';
+import { checkPermissions } from '@flowstate/core';
 import { runAgent, type RuntimeRunRequest } from './agent-runtime';
 
 const __dirname = fileURLToPath(new URL('.', import.meta.url));
@@ -106,14 +107,35 @@ app.whenReady().then(() => {
     const controller = new AbortController();
     inFlight.set(req.runId, controller);
 
-    // Build a canUseTool callback that proxies the SDK's permission prompt
-    // through IPC to the renderer for human approval. The renderer responds
-    // via the agent:approval-response handler below.
+    // Build a canUseTool callback with two layers:
+    //   1. Pure permission gate (denies hard-violations without prompting)
+    //   2. HITL banner (asks the human when policy says ask)
     const canUseTool: NonNullable<RuntimeRunRequest['canUseTool']> = async (
       toolName,
       input,
       options,
     ) => {
+      // Layer 1: declared permission gate
+      const decision = checkPermissions(toolName, input, req.permissions, req.guardrails);
+      if (decision.decision === 'deny') {
+        return {
+          behavior: 'deny',
+          message: decision.reason ?? 'Denied by agent policy',
+        };
+      }
+
+      // Layer 2: HITL banner. Either policy explicitly requires approval,
+      // or permissionMode is "default" (the SDK's normal prompt flow).
+      // permissionMode 'bypassPermissions' skips the banner UNLESS the
+      // tool was on the approvalRequired list.
+      const mustAsk =
+        decision.decision === 'requires_approval' ||
+        req.guardrails?.permissionMode !== 'bypassPermissions';
+
+      if (!mustAsk) {
+        return { behavior: 'allow' };
+      }
+
       return new Promise<PermissionResult>((resolveResult) => {
         pendingApprovals.set(options.toolUseID, resolveResult);
         event.sender.send('agent:approval-request', {
@@ -124,7 +146,7 @@ app.whenReady().then(() => {
           title: options.title,
           displayName: options.displayName,
           description: options.description,
-          decisionReason: options.decisionReason,
+          decisionReason: options.decisionReason ?? decision.reason,
           blockedPath: options.blockedPath,
         });
       });
