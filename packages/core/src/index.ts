@@ -20,3 +20,6 @@ export * from './resolver';
 
 // CLI tool definitions + starter registry + cli:* → bash allowlist resolver
 export * from './cli-tools';
+
+// MCP server definitions + starter registry + mcp:* → SDK mcpServers resolver
+export * from './mcp-servers';
