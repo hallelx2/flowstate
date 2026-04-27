@@ -15,6 +15,7 @@
 
 import type { Guardrails, Permissions } from './schema';
 import type { ToolManifest } from './types/tool';
+import { bashCommandAllowed } from './cli-tools';
 
 // ─── Capability resolver ──────────────────────────────────────────────────
 
@@ -117,11 +118,13 @@ export interface PermissionDecision {
  * Decide whether `toolName` can be invoked with `input`, given the agent's
  * declared permissions + guardrails. Pure function — call once per invocation.
  *
- * The four checks, short-circuit in order:
+ * The five checks, short-circuit in order:
  *   1. guardrails.disallowedTools  → deny
  *   2. guardrails.allowedTools (if set, deny unlisted)
- *   3. permissions.network / fs / env policy on `input`
- *   4. permissions.approvalRequired  → requires_approval (deny if approval not handled by caller)
+ *   3. permissions.network / fs policy on `input`
+ *   4. Bash command allowlist (when supplied) — denies any shell command
+ *      not matching a known cli:* tool template
+ *   5. permissions.approvalRequired  → requires_approval
  *
  * The runtime maps:
  *   allow             → invoke (may still hit canUseTool's HITL flow)
@@ -133,6 +136,8 @@ export function checkPermissions(
   input: Record<string, unknown>,
   permissions: Permissions | undefined,
   guardrails: Guardrails | undefined,
+  /** Bash command patterns derived from `tools: [cli:*]`. Empty/undefined = no bash restriction. */
+  bashAllowPatterns?: string[],
 ): PermissionDecision {
   // 1. Disallowed list — hard block.
   if (guardrails?.disallowedTools?.includes(toolName)) {
@@ -161,7 +166,25 @@ export function checkPermissions(
     if (fsCheck) return fsCheck;
   }
 
-  // 4. Forced-approval list — surfaces the HITL banner regardless of mode.
+  // 4. Bash command allowlist — when the agent declared cli:* tools,
+  //    every Bash invocation must match one of the resolved templates.
+  if (toolName === 'Bash' && bashAllowPatterns && bashAllowPatterns.length > 0) {
+    const command = stringField(input, ['command']);
+    if (!command) {
+      return { decision: 'deny', reason: 'Bash invocation missing `command` field' };
+    }
+    if (!bashCommandAllowed(command, bashAllowPatterns)) {
+      return {
+        decision: 'deny',
+        reason:
+          `Bash command not allowed: \`${command}\`. ` +
+          `This agent has only declared the cli:* tools listed in its frontmatter. ` +
+          `Add the relevant cli:* ref to the agent's tools, or ask the user.`,
+      };
+    }
+  }
+
+  // 5. Forced-approval list — surfaces the HITL banner regardless of mode.
   if (permissions?.approvalRequired?.includes(toolName)) {
     return {
       decision: 'requires_approval',

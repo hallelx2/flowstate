@@ -17,3 +17,6 @@ export * from './tool-adapter';
 
 // Capability resolver + permission gate — pure functions usable in any context
 export * from './resolver';
+
+// CLI tool definitions + starter registry + cli:* → bash allowlist resolver
+export * from './cli-tools';
