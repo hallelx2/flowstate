@@ -7,6 +7,7 @@ import { ToolsPane } from './components/tools/tools-pane';
 import { AgentsView } from './components/agents/agents-view';
 import { RunsView } from './components/runs/runs-view';
 import { SettingsView } from './components/settings/settings-view';
+import { hydrateSettings, settingsStore } from './lib/settings-store';
 
 export type View = 'home' | 'agents' | 'tools' | 'runs' | 'settings';
 
@@ -15,9 +16,23 @@ export function App() {
   const [view, setView] = useState<View>('home');
 
   useEffect(() => {
-    // Mock boot sequence — replaced by real subsystem warm-up later
+    // Hydrate the settings store from disk in parallel with the boot
+    // animation. The animation gives the SSD a few hundred ms of cover —
+    // the store is ready well before the user can do anything with it.
+    void hydrateSettings();
     const t = setTimeout(() => setBooting(false), 2400);
-    return () => clearTimeout(t);
+
+    // Best-effort flush before the renderer process shuts down. Keeps the
+    // last keystroke from being lost if the user closes the window mid-debounce.
+    const onBeforeUnload = () => {
+      void settingsStore.flush();
+    };
+    window.addEventListener('beforeunload', onBeforeUnload);
+
+    return () => {
+      clearTimeout(t);
+      window.removeEventListener('beforeunload', onBeforeUnload);
+    };
   }, []);
 
   return (

@@ -1,4 +1,5 @@
 import { contextBridge, ipcRenderer, type IpcRendererEvent } from 'electron';
+import type { Settings } from '@flowstate/core';
 
 export type PlatformInfo = {
   platform: NodeJS.Platform;
@@ -128,6 +129,22 @@ const flowstateApi = {
 
   /** Absolute filesystem root where agent files live (for display). */
   agentsRoot: (): Promise<string> => ipcRenderer.invoke('agent:root'),
+
+  // ─── Settings persistence ────────────────────────────────────────────
+
+  /** Read the user's settings.json. Returns {} when the file is absent. */
+  readSettings: (): Promise<Settings> => ipcRenderer.invoke('settings:read'),
+
+  /**
+   * Apply a deep-partial patch to settings.json. The main process merges
+   * with the on-disk version, validates against the schema, then writes
+   * atomically. Returns the validated, merged result.
+   */
+  writeSettings: (patch: Partial<Settings>): Promise<Settings> =>
+    ipcRenderer.invoke('settings:write', patch),
+
+  /** Absolute path to settings.json (for display in About / Privacy). */
+  settingsPath: (): Promise<string> => ipcRenderer.invoke('settings:path'),
 };
 
 contextBridge.exposeInMainWorld('flowstate', flowstateApi);

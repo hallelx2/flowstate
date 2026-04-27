@@ -23,3 +23,6 @@ export * from './cli-tools';
 
 // MCP server definitions + starter registry + mcp:* → SDK mcpServers resolver
 export * from './mcp-servers';
+
+// User-level settings — Zod schema + defaults + merge helper
+export * from './settings';

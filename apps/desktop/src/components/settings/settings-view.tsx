@@ -14,7 +14,8 @@ import {
 import { cn } from '@/lib/cn';
 import { FlowstateMark } from '@/components/brand/flowstate-mark';
 import { ClaudeMark } from '@/components/brand/claude-mark';
-import { ModelPicker, CLAUDE_MODELS } from './model-picker';
+import { ModelPicker } from './model-picker';
+import { updateSettings, useSettings } from '@/lib/settings-store';
 
 type Section =
   | 'account'
@@ -100,9 +101,22 @@ export function SettingsView() {
 // ─── Sections ──────────────────────────────────────────────────────────────
 
 function AccountSection() {
-  const [provider, setProvider] = useState<'subscription' | 'api' | 'local'>('subscription');
-  const [model, setModel] = useState<string>(CLAUDE_MODELS[0]!.id); // Opus 4.7 default
-  const [favorites, setFavorites] = useState<string[]>(['claude-opus-4-7']);
+  const settings = useSettings();
+  const provider = settings.account.provider ?? 'subscription';
+  const model = settings.account.model ?? 'claude-opus-4-7';
+  const favorites = settings.account.favorites ?? ['claude-opus-4-7'];
+
+  const setProvider = (v: 'subscription' | 'api' | 'local') =>
+    updateSettings({ account: { provider: v } });
+  const setModel = (id: string) => updateSettings({ account: { model: id } });
+  const toggleFavorite = (id: string) =>
+    updateSettings({
+      account: {
+        favorites: favorites.includes(id)
+          ? favorites.filter((x) => x !== id)
+          : [...favorites, id],
+      },
+    });
 
   return (
     <Section
@@ -112,7 +126,7 @@ function AccountSection() {
       <Field label="Provider">
         <RadioGroup
           value={provider}
-          onChange={(v) => setProvider(v as typeof provider)}
+          onChange={(v) => setProvider(v as 'subscription' | 'api' | 'local')}
           options={[
             {
               value: 'subscription',
@@ -164,9 +178,7 @@ function AccountSection() {
             value={model}
             onChange={setModel}
             favorites={favorites}
-            onToggleFavorite={(id) =>
-              setFavorites((f) => (f.includes(id) ? f.filter((x) => x !== id) : [...f, id]))
-            }
+            onToggleFavorite={toggleFavorite}
           />
         </Field>
       )}
@@ -185,6 +197,9 @@ function AccountSection() {
 }
 
 function WorkspaceSection() {
+  const settings = useSettings();
+  const ws = settings.workspace;
+
   return (
     <Section
       title="Workspace"
@@ -194,19 +209,32 @@ function WorkspaceSection() {
         label="Agents directory"
         hint="A folder of .md and .yaml agent files. Subfolders become linked sections."
       >
-        <PathInput defaultValue="~/Documents/flowstate/agents" />
+        <PathInput
+          value={ws.agentsDir ?? ''}
+          onChange={(v) => updateSettings({ workspace: { agentsDir: v } })}
+        />
       </Field>
 
       <Field label="Tools registry directory" hint="One .yaml or .md per tool. See docs.">
-        <PathInput defaultValue="~/Documents/flowstate/tools" />
+        <PathInput
+          value={ws.toolsDir ?? ''}
+          onChange={(v) => updateSettings({ workspace: { toolsDir: v } })}
+        />
       </Field>
 
       <Field label="Run history" hint="Where each run's append-only journal is written.">
-        <PathInput defaultValue="~/Documents/flowstate/runs" />
+        <PathInput
+          value={ws.runsDir ?? ''}
+          onChange={(v) => updateSettings({ workspace: { runsDir: v } })}
+        />
       </Field>
 
       <Field label="Auto-reload">
-        <Toggle defaultChecked label="Watch the agents directory and reload on save" />
+        <Toggle
+          checked={ws.autoReload ?? true}
+          onChange={(v) => updateSettings({ workspace: { autoReload: v } })}
+          label="Watch the agents directory and reload on save"
+        />
       </Field>
     </Section>
   );
@@ -468,10 +496,26 @@ function TextInput({
   );
 }
 
-function PathInput({ defaultValue }: { defaultValue: string }) {
+function PathInput({
+  value,
+  defaultValue,
+  onChange,
+}: {
+  value?: string;
+  defaultValue?: string;
+  onChange?: (v: string) => void;
+}) {
+  // Controlled when `value` + `onChange` are supplied; uncontrolled (defaultValue)
+  // otherwise. Lets the same primitive serve both wired sections and stubs.
+  const isControlled = value != null && onChange != null;
   return (
     <div className="flex items-center gap-2">
-      <TextInput defaultValue={defaultValue} className="font-mono text-xs" />
+      <TextInput
+        {...(isControlled
+          ? { value, onChange: (e) => onChange!(e.target.value) }
+          : { defaultValue })}
+        className="font-mono text-xs"
+      />
       <button className="btn-outline shrink-0 px-2.5 py-1.5 text-xs">choose…</button>
     </div>
   );
@@ -500,16 +544,23 @@ function Select({
 
 function Toggle({
   label,
+  checked,
   defaultChecked,
+  onChange,
 }: {
   label?: string;
+  checked?: boolean;
   defaultChecked?: boolean;
+  onChange?: (v: boolean) => void;
 }) {
+  const isControlled = checked != null && onChange != null;
   return (
     <label className="flex cursor-pointer items-center gap-3">
       <input
         type="checkbox"
-        defaultChecked={defaultChecked}
+        {...(isControlled
+          ? { checked, onChange: (e) => onChange!(e.target.checked) }
+          : { defaultChecked })}
         className="peer sr-only"
       />
       <span className="relative inline-flex h-5 w-9 shrink-0 items-center rounded-full bg-stone transition-colors peer-checked:bg-ink">

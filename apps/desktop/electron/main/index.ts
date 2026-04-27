@@ -1,10 +1,15 @@
 import { app, BrowserWindow, shell, ipcMain } from 'electron';
-import { join, normalize, resolve, sep } from 'node:path';
+import { dirname, join, normalize, resolve, sep } from 'node:path';
 import { fileURLToPath } from 'node:url';
-import { mkdir, readFile, writeFile } from 'node:fs/promises';
+import { mkdir, readFile, rename, writeFile } from 'node:fs/promises';
 import { existsSync } from 'node:fs';
 import type { PermissionResult } from '@anthropic-ai/claude-agent-sdk';
-import { checkPermissions } from '@flowstate/core';
+import {
+  SettingsSchema,
+  checkPermissions,
+  mergeSettings,
+  type Settings,
+} from '@flowstate/core';
 import { runAgent, type RuntimeRunRequest } from './agent-runtime';
 
 const __dirname = fileURLToPath(new URL('.', import.meta.url));
@@ -34,6 +39,55 @@ function agentsRoot(): string {
     return resolve(__dirname, '..', '..', 'src', 'agents');
   }
   return join(app.getPath('userData'), 'agents');
+}
+
+/**
+ * Where settings.json lives.
+ *
+ * Dev: the project's `.flowstate/settings.json` so config changes round-trip
+ *      through git and stay reviewable while developing.
+ * Prod: <userData>/settings.json — standard OS app-data location.
+ */
+function settingsPath(): string {
+  if (isDev) {
+    // out/main/index.js -> .flowstate/settings.json
+    return resolve(__dirname, '..', '..', '..', '..', '.flowstate', 'settings.json');
+  }
+  return join(app.getPath('userData'), 'settings.json');
+}
+
+/**
+ * Read + validate settings.json. Returns an empty object if the file
+ * doesn't exist or fails to parse — the caller (renderer settings store)
+ * fills in defaults via withDefaults().
+ */
+async function readSettingsFile(): Promise<Settings> {
+  const path = settingsPath();
+  if (!existsSync(path)) return {};
+  try {
+    const raw = await readFile(path, 'utf8');
+    const json = JSON.parse(raw) as unknown;
+    const parsed = SettingsSchema.safeParse(json);
+    if (parsed.success) return parsed.data;
+    console.warn('[settings] schema validation failed; ignoring file', parsed.error.issues);
+    return {};
+  } catch (err) {
+    console.warn('[settings] failed to read', err);
+    return {};
+  }
+}
+
+/**
+ * Atomic write — write to a temp file in the same directory, then rename.
+ * Stops a half-written settings.json from being read on the next launch.
+ */
+async function writeSettingsFile(settings: Settings): Promise<void> {
+  const path = settingsPath();
+  const dir = dirname(path);
+  if (!existsSync(dir)) await mkdir(dir, { recursive: true });
+  const tmp = `${path}.${process.pid}.tmp`;
+  await writeFile(tmp, JSON.stringify(settings, null, 2) + '\n', 'utf8');
+  await rename(tmp, path);
 }
 
 /** Resolve a vite-style relative path (./foo/bar.md) into an absolute fs path,
@@ -222,6 +276,31 @@ app.whenReady().then(() => {
   );
 
   ipcMain.handle('agent:root', (): string => agentsRoot());
+
+  // ─── Settings persistence ─────────────────────────────────────────────
+  // Renderer reads once on boot via `settings:read` (returns the parsed
+  // file or {} if absent). Subsequent updates patch through `settings:write`
+  // — the main process merges with the on-disk version so concurrent writes
+  // from different windows don't clobber each other.
+
+  ipcMain.handle('settings:read', async (): Promise<Settings> => readSettingsFile());
+
+  ipcMain.handle(
+    'settings:write',
+    async (_e, patch: Partial<Settings>): Promise<Settings> => {
+      const current = await readSettingsFile();
+      const next = mergeSettings(current, patch);
+      const validated = SettingsSchema.safeParse(next);
+      if (!validated.success) {
+        const msg = validated.error.issues.map((i) => i.message).join('; ');
+        throw new Error(`Settings validation failed: ${msg}`);
+      }
+      await writeSettingsFile(validated.data);
+      return validated.data;
+    },
+  );
+
+  ipcMain.handle('settings:path', (): string => settingsPath());
 
   createMainWindow();
 
