@@ -26,7 +26,7 @@ import { MarkdownView } from '@/components/prose/markdown-view';
 import { SourceEditor } from '@/components/prose/source-editor';
 import { triggerLabel, toolRefDisplay } from './agent-meta';
 import { startSdkRun } from '@/lib/sdk-runner';
-import { assembleSystemPrompt, defaultUserPrompt } from '@/lib/agent-prompt';
+import { assembleSystemPrompt, bashAllowPatternsFor, defaultUserPrompt } from '@/lib/agent-prompt';
 import { Pencil, Save, Undo2 } from 'lucide-react';
 
 type Tab = 'inspector' | 'source';
@@ -48,8 +48,9 @@ export function AgentDetail({ agent, onRunStarted }: Props) {
       // Threaded through to main-process canUseTool gate:
       permissions: agent.permissions,
       guardrails: agent.guardrails,
-      // TODO: translate agent.tools (mcp:gmail.send / cli:gh.pr.create / etc.)
-      // into the SDK's allowedTools shape. For now: undefined = SDK built-ins.
+      // cli:* refs → bash regex allowlist; gate denies anything off-list
+      bashAllowPatterns: bashAllowPatternsFor(agent),
+      // TODO: translate agent.tools mcp:* refs into SDK MCP server config
     });
     onRunStarted?.();
   };

@@ -40,6 +40,8 @@ export interface RuntimeRunRequest {
   permissions?: Permissions;
   /** Agent's declared guardrails (mode/maxTurns/allowed/disallowed/effort). Mapped to SDK options. */
   guardrails?: Guardrails;
+  /** Bash command patterns the gate allows (from cli:* refs). */
+  bashAllowPatterns?: string[];
 }
 
 export interface RuntimeEvent {

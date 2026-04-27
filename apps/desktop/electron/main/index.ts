@@ -115,8 +115,14 @@ app.whenReady().then(() => {
       input,
       options,
     ) => {
-      // Layer 1: declared permission gate
-      const decision = checkPermissions(toolName, input, req.permissions, req.guardrails);
+      // Layer 1: declared permission gate (incl. bash command allowlist)
+      const decision = checkPermissions(
+        toolName,
+        input,
+        req.permissions,
+        req.guardrails,
+        req.bashAllowPatterns,
+      );
       if (decision.decision === 'deny') {
         return {
           behavior: 'deny',

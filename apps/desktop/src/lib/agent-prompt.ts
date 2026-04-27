@@ -1,10 +1,10 @@
-import type { Agent } from '@flowstate/core';
+import { resolveCliTools, type Agent } from '@flowstate/core';
 
 /**
  * Compose an agent's saved-file content into one prompt string the SDK
  * understands as the system prompt. Order matters — top-level intent first,
  * then narrative, then steps in declared order, then the rules a step needs
- * to honor, then on-failure handling.
+ * to honor, then on-failure handling, then the CLI tool catalog.
  */
 export function assembleSystemPrompt(agent: Agent): string {
   const parts: string[] = [];
@@ -45,7 +45,22 @@ export function assembleSystemPrompt(agent: Agent): string {
     parts.push(`## Overview\n\n${agent.body.trim()}`);
   }
 
+  // CLI tools — teaches Claude exactly which Bash invocations are permitted.
+  // The runtime gate denies anything else, so we owe Claude this catalog.
+  const cliResolution = resolveCliTools(agent.tools ?? []);
+  if (cliResolution.systemPromptAddendum) {
+    parts.push(cliResolution.systemPromptAddendum);
+  }
+
   return parts.join('\n\n');
+}
+
+/**
+ * The bash allowlist a saved agent generates from its `cli:*` tool refs.
+ * Threaded through to the runtime so the gate denies anything off-list.
+ */
+export function bashAllowPatternsFor(agent: Agent): string[] {
+  return resolveCliTools(agent.tools ?? []).bashAllowPatterns;
 }
 
 /**

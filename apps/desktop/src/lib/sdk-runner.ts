@@ -40,6 +40,11 @@ interface StartOpts {
     disallowedTools?: string[];
     effort?: 'low' | 'medium' | 'high' | 'xhigh' | 'max' | number;
   };
+  /**
+   * Bash command patterns the gate will allow (regex sources).
+   * Generated from the agent's cli:* tool refs via resolveCliTools().
+   */
+  bashAllowPatterns?: string[];
 }
 
 export function startSdkRun(opts: StartOpts): Run {
@@ -145,6 +150,7 @@ export function startSdkRun(opts: StartOpts): Run {
       model: opts.model,
       permissions: opts.permissions,
       guardrails: opts.guardrails,
+      bashAllowPatterns: opts.bashAllowPatterns,
     })
     .catch((err) => {
       console.warn('[sdk-runner] SDK invocation failed, falling back to mock', err);

@@ -30,6 +30,8 @@ export interface RunRequest {
     disallowedTools?: string[];
     effort?: 'low' | 'medium' | 'high' | 'xhigh' | 'max' | number;
   };
+  /** Bash command patterns the gate allows. Generated from cli:* refs. */
+  bashAllowPatterns?: string[];
 }
 
 export interface AgentEvent {
