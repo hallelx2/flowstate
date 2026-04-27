@@ -32,6 +32,16 @@ export interface RunRequest {
   };
   /** Bash command patterns the gate allows. Generated from cli:* refs. */
   bashAllowPatterns?: string[];
+  /**
+   * MCP server config map. Keys are server ids; values are SDK-shaped
+   * stdio/http/sse configs. Passed straight through to query() options.
+   */
+  mcpServers?: Record<
+    string,
+    | { type?: 'stdio'; command: string; args?: string[]; env?: Record<string, string> }
+    | { type: 'http'; url: string; headers?: Record<string, string> }
+    | { type: 'sse'; url: string; headers?: Record<string, string> }
+  >;
 }
 
 export interface AgentEvent {

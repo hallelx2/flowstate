@@ -45,6 +45,17 @@ interface StartOpts {
    * Generated from the agent's cli:* tool refs via resolveCliTools().
    */
   bashAllowPatterns?: string[];
+  /**
+   * MCP servers — agent's `mcp:*` refs translated to SDK's mcpServers map.
+   * The SDK starts each one on first use and exposes its tools as
+   * `mcp__<server>__<action>`. Threaded through IPC to query() options.
+   */
+  mcpServers?: Record<
+    string,
+    | { type?: 'stdio'; command: string; args?: string[]; env?: Record<string, string> }
+    | { type: 'http'; url: string; headers?: Record<string, string> }
+    | { type: 'sse'; url: string; headers?: Record<string, string> }
+  >;
 }
 
 export function startSdkRun(opts: StartOpts): Run {
@@ -151,6 +162,7 @@ export function startSdkRun(opts: StartOpts): Run {
       permissions: opts.permissions,
       guardrails: opts.guardrails,
       bashAllowPatterns: opts.bashAllowPatterns,
+      mcpServers: opts.mcpServers,
     })
     .catch((err) => {
       console.warn('[sdk-runner] SDK invocation failed, falling back to mock', err);

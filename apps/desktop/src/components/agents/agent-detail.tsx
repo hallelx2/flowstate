@@ -26,7 +26,12 @@ import { MarkdownView } from '@/components/prose/markdown-view';
 import { SourceEditor } from '@/components/prose/source-editor';
 import { triggerLabel, toolRefDisplay } from './agent-meta';
 import { startSdkRun } from '@/lib/sdk-runner';
-import { assembleSystemPrompt, bashAllowPatternsFor, defaultUserPrompt } from '@/lib/agent-prompt';
+import {
+  assembleSystemPrompt,
+  bashAllowPatternsFor,
+  defaultUserPrompt,
+  mcpServersFor,
+} from '@/lib/agent-prompt';
 import { Pencil, Save, Undo2 } from 'lucide-react';
 
 type Tab = 'inspector' | 'source';
@@ -50,7 +55,8 @@ export function AgentDetail({ agent, onRunStarted }: Props) {
       guardrails: agent.guardrails,
       // cli:* refs → bash regex allowlist; gate denies anything off-list
       bashAllowPatterns: bashAllowPatternsFor(agent),
-      // TODO: translate agent.tools mcp:* refs into SDK MCP server config
+      // mcp:* refs → SDK mcpServers map; servers spawn lazily on first call
+      mcpServers: mcpServersFor(agent),
     });
     onRunStarted?.();
   };

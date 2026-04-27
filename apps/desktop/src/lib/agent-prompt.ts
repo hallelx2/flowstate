@@ -1,4 +1,9 @@
-import { resolveCliTools, type Agent } from '@flowstate/core';
+import {
+  resolveCliTools,
+  resolveMcpServers,
+  type Agent,
+  type SdkMcpServerConfig,
+} from '@flowstate/core';
 
 /**
  * Compose an agent's saved-file content into one prompt string the SDK
@@ -52,6 +57,14 @@ export function assembleSystemPrompt(agent: Agent): string {
     parts.push(cliResolution.systemPromptAddendum);
   }
 
+  // MCP servers — the SDK starts each one on first use and exposes its tools
+  // as `mcp__<server>__<action>`. The addendum tells Claude which servers
+  // are wired in and which actions on each were declared.
+  const mcpResolution = resolveMcpServers(agent.tools ?? []);
+  if (mcpResolution.systemPromptAddendum) {
+    parts.push(mcpResolution.systemPromptAddendum);
+  }
+
   return parts.join('\n\n');
 }
 
@@ -61,6 +74,23 @@ export function assembleSystemPrompt(agent: Agent): string {
  */
 export function bashAllowPatternsFor(agent: Agent): string[] {
   return resolveCliTools(agent.tools ?? []).bashAllowPatterns;
+}
+
+/**
+ * The SDK `mcpServers` map a saved agent generates from its `mcp:*` tool refs.
+ * Passed through IPC to the SDK query() call in the main process.
+ */
+export function mcpServersFor(agent: Agent): Record<string, SdkMcpServerConfig> {
+  return resolveMcpServers(agent.tools ?? []).sdkServers;
+}
+
+/**
+ * SDK tool names — `mcp__<server>__<action>` — derived from action-scoped
+ * `mcp:*.*` refs. Empty array when every ref was bare, in which case we
+ * leave the SDK's tool allowlist alone (server's full surface is implicit).
+ */
+export function mcpAllowedToolNamesFor(agent: Agent): string[] {
+  return resolveMcpServers(agent.tools ?? []).allowedToolNames;
 }
 
 /**

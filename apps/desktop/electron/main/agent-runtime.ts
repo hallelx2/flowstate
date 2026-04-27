@@ -19,7 +19,12 @@
  * renderer + the TODO notes in mock-runner.ts.
  */
 
-import { query, type CanUseTool, type SDKMessage } from '@anthropic-ai/claude-agent-sdk';
+import {
+  query,
+  type CanUseTool,
+  type McpServerConfig,
+  type SDKMessage,
+} from '@anthropic-ai/claude-agent-sdk';
 import type { Guardrails, Permissions } from '@flowstate/core';
 
 export interface RuntimeRunRequest {
@@ -42,6 +47,8 @@ export interface RuntimeRunRequest {
   guardrails?: Guardrails;
   /** Bash command patterns the gate allows (from cli:* refs). */
   bashAllowPatterns?: string[];
+  /** MCP servers (agent's mcp:* refs → SDK mcpServers config). */
+  mcpServers?: Record<string, McpServerConfig>;
 }
 
 export interface RuntimeEvent {
@@ -112,6 +119,13 @@ export async function runAgent(req: RuntimeRunRequest, emit: EventCallback): Pro
         maxTurns,
         systemPrompt: req.agentSystemPrompt,
         canUseTool: req.canUseTool,
+        // mcpServers — only set when non-empty so the SDK doesn't enumerate
+        // an empty map. The runtime's pool will keep a warm cache (Block A#2
+        // follow-up); for now each query() call gets its own server set.
+        mcpServers:
+          req.mcpServers && Object.keys(req.mcpServers).length > 0
+            ? req.mcpServers
+            : undefined,
         abortController: req.abortSignal
           ? ({ signal: req.abortSignal } as unknown as AbortController)
           : undefined,
