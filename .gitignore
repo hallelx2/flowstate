@@ -13,3 +13,12 @@ release/
 
 # Claude Code session metadata
 .claude/
+
+# Dev-mode flowstate runtime state — settings.json, secrets.json,
+# mcp-cache, tools/. These contain user keys and per-machine paths;
+# never check them in. Production reads/writes <userData>/ instead.
+.flowstate/
+
+# Build-time icon intermediates (kept locally for re-runs of the icon
+# script). The committed final outputs are public/icon.{ico,png,@2x.png}.
+apps/desktop/public/icons/

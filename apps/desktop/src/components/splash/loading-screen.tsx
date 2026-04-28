@@ -49,12 +49,15 @@ export function LoadingScreen() {
             background: 'radial-gradient(closest-side, hsl(282 60% 70% / 0.35), transparent 70%)',
           }}
         />
-        {/* Mono uppercase eyebrow inside the band */}
+        {/* Mono uppercase eyebrow inside the band.
+            top-14 sits below the 36px native title bar overlay so macOS
+            traffic lights and the Windows min/max/close buttons can't
+            occlude the wordmark + version pill. */}
         <motion.div
           initial={{ opacity: 0, y: -4 }}
           animate={{ opacity: 1, y: 0 }}
           transition={{ duration: 0.8, delay: 0.3 }}
-          className="absolute left-10 top-8 flex items-center gap-2.5 text-paper/80"
+          className="absolute left-10 top-14 flex items-center gap-2.5 text-paper/80"
         >
           <FlowstateMark size={20} filled={false} className="text-paper opacity-90" />
           <span className="font-mono text-2xs uppercase tracking-code-wide">
@@ -62,14 +65,16 @@ export function LoadingScreen() {
           </span>
         </motion.div>
 
-        {/* System status — top right inside band */}
+        {/* System status — top right inside band.
+            right-40 keeps the cluster clear of the Windows native button
+            group (~138px wide). Mac just gets a bit more breathing room. */}
         <motion.div
           initial={{ opacity: 0 }}
           animate={{ opacity: 1 }}
           transition={{ duration: 0.8, delay: 0.5 }}
-          className="absolute right-10 top-8 flex flex-col items-end gap-1 text-paper/70"
+          className="absolute right-40 top-14 flex flex-col items-end gap-1 text-paper/70"
         >
-          <span className="font-mono text-2xs uppercase tracking-code">UNAUTHENTICATED</span>
+          <span className="font-mono text-2xs uppercase tracking-code">LOCAL · OFFLINE-FIRST</span>
           <span className="font-mono text-2xs text-paper/50">no telemetry</span>
         </motion.div>
 
