@@ -9,6 +9,7 @@ import {
   Play,
   Globe,
   Package,
+  Terminal,
 } from 'lucide-react';
 import type { ToolKind, ToolManifest } from '@flowstate/core';
 import { cn } from '@/lib/cn';
@@ -17,8 +18,9 @@ import { ToolCard } from './tool-card';
 import { ToolIcon } from './tool-icon';
 import { kindLabel, statusInfo } from './tool-meta';
 import { MarketplaceView } from './marketplace-view';
+import { CliMarketplaceView } from './cli-marketplace-view';
 
-type Tab = 'installed' | 'marketplace';
+type Tab = 'installed' | 'marketplace' | 'cli';
 
 type Filter = 'all' | ToolKind;
 
@@ -66,6 +68,10 @@ export function ToolsPane() {
       {tab === 'marketplace' ? (
         <div className="flex-1 overflow-hidden">
           <MarketplaceView />
+        </div>
+      ) : tab === 'cli' ? (
+        <div className="flex-1 overflow-hidden">
+          <CliMarketplaceView />
         </div>
       ) : (
         <InstalledTab
@@ -229,7 +235,8 @@ function InstalledTab({
 function TabBar({ tab, onChange }: { tab: Tab; onChange: (t: Tab) => void }) {
   const TABS: Array<{ id: Tab; label: string; sub: string; icon: typeof Package }> = [
     { id: 'installed', label: 'Installed', sub: 'On this machine', icon: Package },
-    { id: 'marketplace', label: 'Marketplace', sub: 'Browse the live registry', icon: Globe },
+    { id: 'marketplace', label: 'MCP Servers', sub: 'Browse the live registry', icon: Globe },
+    { id: 'cli', label: 'CLI Tools', sub: 'gh · aws · stripe · docker · more', icon: Terminal },
   ];
   return (
     <div className="flex shrink-0 items-stretch gap-2 border-b border-stone bg-paper-sunken px-12">
