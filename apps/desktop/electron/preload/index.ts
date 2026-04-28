@@ -1,5 +1,10 @@
 import { contextBridge, ipcRenderer, type IpcRendererEvent } from 'electron';
-import type { Settings } from '@flowstate/core';
+import type {
+  FetchResult,
+  MarketplaceSourceId,
+  McpServerDef,
+  Settings,
+} from '@flowstate/core';
 
 export type PlatformInfo = {
   platform: NodeJS.Platform;
@@ -145,6 +150,81 @@ const flowstateApi = {
 
   /** Absolute path to settings.json (for display in About / Privacy). */
   settingsPath: (): Promise<string> => ipcRenderer.invoke('settings:path'),
+
+  // ─── MCP marketplace ─────────────────────────────────────────────────
+  // The renderer doesn't make outbound HTTP itself — main fetches the
+  // public registries, normalizes results into McpServerDef shape, and
+  // returns them. Installs round-trip back to disk so they survive restarts.
+
+  /**
+   * Search the live marketplace. `source` defaults to the official MCP
+   * registry; pass 'glama' for the long-tail community catalogue. The
+   * result is paginated — pass `cursor` to fetch the next page.
+   */
+  marketplaceSearch: (params: {
+    source?: MarketplaceSourceId;
+    search?: string;
+    cursor?: string;
+    limit?: number;
+  }): Promise<FetchResult> => ipcRenderer.invoke('marketplace:search', params),
+
+  /** List the user's installed MCP server definitions (under ~/.flowstate/tools/mcp/). */
+  marketplaceListInstalled: (): Promise<McpServerDef[]> =>
+    ipcRenderer.invoke('marketplace:list-installed'),
+
+  /** Persist a chosen server def to disk so it joins the runtime registry. */
+  marketplaceInstall: (def: McpServerDef): Promise<{ id: string; path: string }> =>
+    ipcRenderer.invoke('marketplace:install', def),
+
+  /** Remove an installed server def. */
+  marketplaceUninstall: (id: string): Promise<boolean> =>
+    ipcRenderer.invoke('marketplace:uninstall', id),
+
+  /**
+   * Pull the ENTIRE catalogue (paginated under the hood) and return it
+   * deduped + A→Z sorted. Cached on disk for 6 hours so subsequent opens
+   * are instant. Pass `force: true` to bypass the cache.
+   */
+  marketplaceFetchAll: (params?: {
+    source?: MarketplaceSourceId;
+    force?: boolean;
+  }): Promise<{
+    source: MarketplaceSourceId;
+    servers: McpServerDef[];
+    fetchedAt: string;
+    fromCache: boolean;
+  }> => ipcRenderer.invoke('marketplace:fetch-all', params ?? {}),
+
+  /**
+   * Subscribe to fetch-all progress events while the catalogue downloads
+   * (one message per page completed). Returns an unsubscribe.
+   */
+  onMarketplaceProgress: (
+    cb: (info: { source: MarketplaceSourceId; loaded: number; page: number }) => void,
+  ): (() => void) => {
+    const handler = (
+      _e: IpcRendererEvent,
+      info: { source: MarketplaceSourceId; loaded: number; page: number },
+    ) => cb(info);
+    ipcRenderer.on('marketplace:progress', handler);
+    return () => ipcRenderer.off('marketplace:progress', handler);
+  },
+
+  // ─── Secrets keychain (env-var values for installed MCP servers) ──────
+  // Stored on disk in <userData>/secrets.json (encrypted via Electron
+  // safeStorage on platforms that support it; plaintext fallback otherwise
+  // — main warns in console if the OS doesn't support encryption).
+
+  /** Read whether a given env-var name has a value stored (NOT the value itself). */
+  secretsList: (): Promise<string[]> => ipcRenderer.invoke('secrets:list'),
+
+  /** Set / overwrite a secret's value. */
+  secretsSet: (name: string, value: string): Promise<boolean> =>
+    ipcRenderer.invoke('secrets:set', { name, value }),
+
+  /** Delete a secret. */
+  secretsDelete: (name: string): Promise<boolean> =>
+    ipcRenderer.invoke('secrets:delete', name),
 };
 
 contextBridge.exposeInMainWorld('flowstate', flowstateApi);

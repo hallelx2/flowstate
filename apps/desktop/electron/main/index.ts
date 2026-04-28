@@ -1,13 +1,21 @@
-import { app, BrowserWindow, shell, ipcMain } from 'electron';
+import { app, BrowserWindow, safeStorage, shell, ipcMain } from 'electron';
 import { dirname, join, normalize, resolve, sep } from 'node:path';
 import { fileURLToPath } from 'node:url';
-import { mkdir, readFile, rename, writeFile } from 'node:fs/promises';
+import { mkdir, readdir, readFile, rename, unlink, writeFile } from 'node:fs/promises';
 import { existsSync } from 'node:fs';
 import type { PermissionResult } from '@anthropic-ai/claude-agent-sdk';
 import {
   SettingsSchema,
   checkPermissions,
+  dedupeById,
+  fetchMarketplace,
+  fetchMarketplaceAll,
   mergeSettings,
+  sortByQuality,
+  type FetchResult,
+  type MarketplaceSourceId,
+  type McpServerDef,
+  type RegistryFetcher,
   type Settings,
 } from '@flowstate/core';
 import { runAgent, type RuntimeRunRequest } from './agent-runtime';
@@ -39,6 +47,70 @@ function agentsRoot(): string {
     return resolve(__dirname, '..', '..', 'src', 'agents');
   }
   return join(app.getPath('userData'), 'agents');
+}
+
+/**
+ * Where installed MCP server defs live.
+ *
+ * One JSON file per server (`<id>.json`) so users can hand-edit a single
+ * entry without deserializing the whole catalogue. Files written here are
+ * picked up by the runtime registry on next agent run.
+ */
+/**
+ * Disk-backed cache for the registry fetch-all result. Two reasons:
+ *
+ *   1. Pulling the whole official registry is ~30 paginated round-trips.
+ *      Doing that on every Marketplace tab open is wasteful (and slow on
+ *      cold connections).
+ *   2. Offline browsing — once cached, users can scroll the catalogue
+ *      and search across it even without network.
+ *
+ * TTL is 6h; the renderer can force a refresh via `force: true`.
+ */
+const MARKETPLACE_TTL_MS = 6 * 60 * 60 * 1000;
+
+/** Bump when McpServerDef gains/loses fields so older cache files get invalidated. */
+const MARKETPLACE_CACHE_SCHEMA = 3;
+
+interface MarketplaceCacheFile {
+  schema?: number;
+  source: MarketplaceSourceId;
+  fetchedAt: string;
+  servers: McpServerDef[];
+}
+
+function marketplaceCacheDir(): string {
+  if (isDev) {
+    return resolve(__dirname, '..', '..', '..', '..', '.flowstate', 'mcp-cache');
+  }
+  return join(app.getPath('userData'), 'mcp-cache');
+}
+
+function marketplaceCachePath(source: MarketplaceSourceId): string {
+  return join(marketplaceCacheDir(), `${source}.json`);
+}
+
+function installedMcpDir(): string {
+  if (isDev) {
+    return resolve(__dirname, '..', '..', '..', '..', '.flowstate', 'tools', 'mcp');
+  }
+  return join(app.getPath('userData'), 'tools', 'mcp');
+}
+
+/**
+ * Where the encrypted-at-rest secrets keychain lives. Stored separately
+ * from settings.json because the values are sensitive — kept out of git
+ * even in dev (added to .gitignore).
+ *
+ * Format: { "<NAME>": "<base64-of-electron-safeStorage-cipher>" }
+ * Falls back to plaintext on platforms that don't support safeStorage,
+ * with a console warning. The renderer never sees decrypted values.
+ */
+function secretsPath(): string {
+  if (isDev) {
+    return resolve(__dirname, '..', '..', '..', '..', '.flowstate', 'secrets.json');
+  }
+  return join(app.getPath('userData'), 'secrets.json');
 }
 
 /**
@@ -103,7 +175,42 @@ function resolveAgentPath(relPath: string): string {
   return abs;
 }
 
+/**
+ * Resolve the OS window icon. Electron only accepts raster (.png/.ico),
+ * not SVG, so we look for a flowstate-shipped icon next to the app.
+ *
+ * Lookup order — first match wins, all paths optional:
+ *   1. resources/icon.{ico,png}  (production package extra-resources)
+ *   2. public/icon.{ico,png}     (dev bundle from Vite's static dir)
+ *
+ * Falls through to `undefined` (Electron default) if none exist — that's
+ * the behaviour you'd see today before any raster icon is added.
+ */
+function resolveWindowIcon(): string | undefined {
+  const candidates: string[] = [];
+  if (process.platform === 'win32') {
+    // ICO is the canonical Windows icon format; PNG works too on modern Electron.
+    candidates.push(
+      join(process.resourcesPath ?? '', 'icon.ico'),
+      resolve(__dirname, '..', '..', 'resources', 'icon.ico'),
+      resolve(__dirname, '..', '..', 'public', 'icon.ico'),
+      resolve(__dirname, '..', '..', 'public', 'icon.png'),
+    );
+  } else {
+    candidates.push(
+      join(process.resourcesPath ?? '', 'icon.png'),
+      resolve(__dirname, '..', '..', 'resources', 'icon.png'),
+      resolve(__dirname, '..', '..', 'public', 'icon.png'),
+    );
+  }
+  for (const p of candidates) {
+    if (p && existsSync(p)) return p;
+  }
+  return undefined;
+}
+
 function createMainWindow(): BrowserWindow {
+  const icon = resolveWindowIcon();
   const win = new BrowserWindow({
     width: 1280,
     height: 820,
@@ -111,6 +218,7 @@ function createMainWindow(): BrowserWindow {
     minHeight: 640,
     show: false,
     backgroundColor: '#FFFFFF',
+    ...(icon ? { icon } : {}),
     titleBarStyle: process.platform === 'darwin' ? 'hiddenInset' : 'hidden',
     titleBarOverlay:
       process.platform !== 'darwin'
@@ -118,7 +226,10 @@ function createMainWindow(): BrowserWindow {
         : undefined,
     trafficLightPosition: { x: 14, y: 14 },
     webPreferences: {
-      preload: join(__dirname, '../preload/index.js'),
+      // electron-vite outputs ESM (.mjs) for the preload bundle. Pointing at
+      // .js silently fails to load the preload, which leaves window.flowstate
+      // undefined in the renderer — every IPC call then fails.
+      preload: join(__dirname, '../preload/index.mjs'),
       sandbox: false,
       contextIsolation: true,
       nodeIntegration: false,
@@ -140,6 +251,14 @@ function createMainWindow(): BrowserWindow {
   }
 
   return win;
+}
+
+// AppUserModelId — without this, Windows shows our taskbar entry as
+// "Electron" (the dev binary's own model id). Setting our own id makes
+// the taskbar pin survive across launches AND lets the OS associate the
+// jump list, notifications, and icon with flowstate specifically.
+if (process.platform === 'win32') {
+  app.setAppUserModelId('com.flowstate.desktop');
 }
 
 app.whenReady().then(() => {
@@ -301,6 +420,250 @@ app.whenReady().then(() => {
   );
 
   ipcMain.handle('settings:path', (): string => settingsPath());
+
+  // ─── MCP marketplace ──────────────────────────────────────────────────
+  // Renderer asks main to fetch from the public registry (renderer can't
+  // hit arbitrary network from a sandboxed BrowserWindow without CORS).
+  // Installs land on disk under <userData>/tools/mcp/<id>.json so the
+  // runtime registry picks them up automatically on next run.
+
+  /** Adapter that hands core's pure marketplace fetcher a real fetch impl. */
+  const httpFetcher: RegistryFetcher = async (url) => {
+    try {
+      const r = await fetch(url, { headers: { Accept: 'application/json' } });
+      return { ok: r.ok, json: () => r.json() };
+    } catch (err) {
+      console.warn('[marketplace] fetch failed', url, err);
+      return null;
+    }
+  };
+
+  ipcMain.handle(
+    'marketplace:search',
+    async (
+      _e,
+      params: {
+        source?: MarketplaceSourceId;
+        search?: string;
+        cursor?: string;
+        limit?: number;
+      },
+    ): Promise<FetchResult> => {
+      const source = params.source ?? 'official';
+      const result = await fetchMarketplace(source, httpFetcher, {
+        search: params.search,
+        cursor: params.cursor,
+        limit: params.limit ?? 30,
+      });
+      console.log(
+        `[marketplace] source=${source} q="${params.search ?? ''}" → ${
+          result?.servers.length ?? 'NULL'
+        } servers, ${result?.warnings.length ?? 0} warnings`,
+      );
+      if (result?.warnings && result.warnings.length > 0 && result.servers.length === 0) {
+        // First few warnings make it easy to spot a normalizer regression.
+        console.warn('[marketplace] all entries skipped — sample warnings:', result.warnings.slice(0, 3));
+      }
+      // Empty fallback so the renderer can render "no results / offline" instead of throwing.
+      return (
+        result ?? { source, servers: [], fetchedAt: new Date().toISOString(), warnings: ['network-failed'] }
+      );
+    },
+  );
+
+  ipcMain.handle('marketplace:list-installed', async (): Promise<McpServerDef[]> => {
+    const dir = installedMcpDir();
+    if (!existsSync(dir)) return [];
+    const out: McpServerDef[] = [];
+    const entries = await readdir(dir);
+    for (const name of entries) {
+      if (!name.endsWith('.json')) continue;
+      try {
+        const raw = await readFile(join(dir, name), 'utf8');
+        out.push(JSON.parse(raw) as McpServerDef);
+      } catch (err) {
+        console.warn('[marketplace] skipping malformed install', name, err);
+      }
+    }
+    return out;
+  });
+
+  ipcMain.handle(
+    'marketplace:install',
+    async (_e, def: McpServerDef): Promise<{ id: string; path: string }> => {
+      if (!def?.id) throw new Error('install: server def missing id');
+      const dir = installedMcpDir();
+      if (!existsSync(dir)) await mkdir(dir, { recursive: true });
+      const path = join(dir, `${def.id}.json`);
+      const tmp = `${path}.${process.pid}.tmp`;
+      await writeFile(tmp, JSON.stringify(def, null, 2) + '\n', 'utf8');
+      await rename(tmp, path);
+      return { id: def.id, path };
+    },
+  );
+
+  ipcMain.handle('marketplace:uninstall', async (_e, id: string): Promise<boolean> => {
+    const path = join(installedMcpDir(), `${id}.json`);
+    if (!existsSync(path)) return false;
+    await unlink(path);
+    return true;
+  });
+
+  // ─── marketplace:fetch-all ────────────────────────────────────────────
+  // Pulls every page from the registry under the hood, dedupes by id,
+  // sorts A→Z, and caches the result on disk for 6h. While fetching,
+  // emits `marketplace:progress` events so the renderer can show a
+  // "Loaded N servers across P pages" indicator.
+
+  ipcMain.handle(
+    'marketplace:fetch-all',
+    async (
+      event,
+      params: { source?: MarketplaceSourceId; force?: boolean },
+    ): Promise<{
+      source: MarketplaceSourceId;
+      servers: McpServerDef[];
+      fetchedAt: string;
+      fromCache: boolean;
+    }> => {
+      const source = params.source ?? 'official';
+      const cachePath = marketplaceCachePath(source);
+
+      // 1. Try the disk cache first (unless force-refresh). Cache files
+      //    written by an older McpServerDef shape get auto-invalidated via
+      //    the schema check so quality/featured/verified fields populate
+      //    on the next open.
+      if (!params.force && existsSync(cachePath)) {
+        try {
+          const raw = await readFile(cachePath, 'utf8');
+          const parsed = JSON.parse(raw) as MarketplaceCacheFile;
+          const ageMs = Date.now() - new Date(parsed.fetchedAt).getTime();
+          const schemaOk = parsed.schema === MARKETPLACE_CACHE_SCHEMA;
+          if (
+            schemaOk &&
+            ageMs >= 0 &&
+            ageMs < MARKETPLACE_TTL_MS &&
+            Array.isArray(parsed.servers)
+          ) {
+            console.log(
+              `[marketplace] cache hit for ${source} (${parsed.servers.length} servers, age ${(ageMs / 60000).toFixed(0)}m)`,
+            );
+            return {
+              source,
+              servers: parsed.servers,
+              fetchedAt: parsed.fetchedAt,
+              fromCache: true,
+            };
+          }
+          if (!schemaOk) {
+            console.log(`[marketplace] cache schema bump — refetching ${source}`);
+          }
+        } catch (err) {
+          console.warn('[marketplace] cache read failed; refetching', err);
+        }
+      }
+
+      // 2. Cold path — paginate through the live registry.
+      console.log(`[marketplace] fetch-all live for ${source}`);
+      const result = await fetchMarketplaceAll(
+        source,
+        httpFetcher,
+        {},
+        60,
+        (loaded, page) => {
+          event.sender.send('marketplace:progress', { source, loaded, page });
+        },
+      );
+
+      // Default sort = quality-first, so the highest-signal servers
+      // are what users see on the first page even before they touch
+      // the sort dropdown. The renderer can re-sort client-side after.
+      const servers = sortByQuality(dedupeById(result?.servers ?? []));
+      const fetchedAt = result?.fetchedAt ?? new Date().toISOString();
+
+      // 3. Persist to disk so the next open is instant.
+      if (servers.length > 0) {
+        try {
+          if (!existsSync(marketplaceCacheDir())) {
+            await mkdir(marketplaceCacheDir(), { recursive: true });
+          }
+          const file: MarketplaceCacheFile = {
+            schema: MARKETPLACE_CACHE_SCHEMA,
+            source,
+            fetchedAt,
+            servers,
+          };
+          const tmp = `${cachePath}.${process.pid}.tmp`;
+          await writeFile(tmp, JSON.stringify(file), 'utf8');
+          await rename(tmp, cachePath);
+          console.log(`[marketplace] cached ${servers.length} ${source} servers to disk`);
+        } catch (err) {
+          console.warn('[marketplace] cache write failed', err);
+        }
+      }
+
+      return { source, servers, fetchedAt, fromCache: false };
+    },
+  );
+
+  // ─── Secrets keychain ─────────────────────────────────────────────────
+  // Encrypted-at-rest via Electron safeStorage where supported. The
+  // renderer can list NAMES (so the marketplace UI can show a green
+  // checkmark when a server's required secrets are populated) but
+  // never gets to read VALUES — those are only injected into MCP server
+  // env at run time.
+
+  type SecretsFile = Record<string, string>;
+
+  async function readSecretsFile(): Promise<SecretsFile> {
+    const path = secretsPath();
+    if (!existsSync(path)) return {};
+    try {
+      return JSON.parse(await readFile(path, 'utf8')) as SecretsFile;
+    } catch {
+      return {};
+    }
+  }
+
+  async function writeSecretsFile(data: SecretsFile): Promise<void> {
+    const path = secretsPath();
+    const dir = dirname(path);
+    if (!existsSync(dir)) await mkdir(dir, { recursive: true });
+    const tmp = `${path}.${process.pid}.tmp`;
+    await writeFile(tmp, JSON.stringify(data, null, 2) + '\n', 'utf8');
+    await rename(tmp, path);
+  }
+
+  ipcMain.handle('secrets:list', async (): Promise<string[]> => {
+    return Object.keys(await readSecretsFile());
+  });
+
+  ipcMain.handle(
+    'secrets:set',
+    async (_e, payload: { name: string; value: string }): Promise<boolean> => {
+      const current = await readSecretsFile();
+      const v = payload.value;
+      // Encrypt where possible — fall back to plain b64 with a warning.
+      let stored: string;
+      if (safeStorage.isEncryptionAvailable()) {
+        stored = `enc:${safeStorage.encryptString(v).toString('base64')}`;
+      } else {
+        console.warn('[secrets] encryption unavailable on this OS — storing plaintext');
+        stored = `plain:${Buffer.from(v, 'utf8').toString('base64')}`;
+      }
+      current[payload.name] = stored;
+      await writeSecretsFile(current);
+      return true;
+    },
+  );
+
+  ipcMain.handle('secrets:delete', async (_e, name: string): Promise<boolean> => {
+    const current = await readSecretsFile();
+    if (!(name in current)) return false;
+    delete current[name];
+    await writeSecretsFile(current);
+    return true;
+  });
 
   createMainWindow();
 
