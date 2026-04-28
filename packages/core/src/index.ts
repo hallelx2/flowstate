@@ -21,6 +21,10 @@ export * from './resolver';
 // CLI tool definitions + starter registry + cli:* → bash allowlist resolver
 export * from './cli-tools';
 
+// CLI tool family catalog — per-brand metadata for the CLI marketplace tab
+// (install instructions, version + auth probes, attached actions).
+export * from './cli-catalog';
+
 // MCP server definitions + starter registry + mcp:* → SDK mcpServers resolver
 export * from './mcp-servers';
 
