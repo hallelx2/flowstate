@@ -1,12 +1,24 @@
 import { useMemo, useState } from 'react';
 import { motion, AnimatePresence } from 'motion/react';
-import { Search, Plus, X, ExternalLink, Settings as SettingsIcon, Play } from 'lucide-react';
+import {
+  Search,
+  Plus,
+  X,
+  ExternalLink,
+  Settings as SettingsIcon,
+  Play,
+  Globe,
+  Package,
+} from 'lucide-react';
 import type { ToolKind, ToolManifest } from '@flowstate/core';
 import { cn } from '@/lib/cn';
 import { FIXTURE_TOOLS } from './fixtures';
 import { ToolCard } from './tool-card';
 import { ToolIcon } from './tool-icon';
 import { kindLabel, statusInfo } from './tool-meta';
+import { MarketplaceView } from './marketplace-view';
+
+type Tab = 'installed' | 'marketplace';
 
 type Filter = 'all' | ToolKind;
 
@@ -21,6 +33,7 @@ const FILTERS: { id: Filter; label: string }[] = [
 ];
 
 export function ToolsPane() {
+  const [tab, setTab] = useState<Tab>('installed');
   const [filter, setFilter] = useState<Filter>('all');
   const [query, setQuery] = useState('');
   const [selected, setSelected] = useState<ToolManifest | null>(null);
@@ -48,7 +61,49 @@ export function ToolsPane() {
   }, []);
 
   return (
-    <div className="relative flex h-full bg-paper">
+    <div className="flex h-full flex-col">
+      <TabBar tab={tab} onChange={setTab} />
+      {tab === 'marketplace' ? (
+        <div className="flex-1 overflow-hidden">
+          <MarketplaceView />
+        </div>
+      ) : (
+        <InstalledTab
+          filter={filter}
+          setFilter={setFilter}
+          query={query}
+          setQuery={setQuery}
+          selected={selected}
+          setSelected={setSelected}
+          filtered={filtered}
+          counts={counts}
+        />
+      )}
+    </div>
+  );
+}
+
+function InstalledTab({
+  filter,
+  setFilter,
+  query,
+  setQuery,
+  selected,
+  setSelected,
+  filtered,
+  counts,
+}: {
+  filter: Filter;
+  setFilter: (f: Filter) => void;
+  query: string;
+  setQuery: (q: string) => void;
+  selected: ToolManifest | null;
+  setSelected: (t: ToolManifest | null) => void;
+  filtered: ToolManifest[];
+  counts: Record<string, number>;
+}) {
+  return (
+    <div className="relative flex h-full flex-1 bg-paper">
       <div className="flex flex-1 flex-col overflow-hidden">
         {/* ─── Editorial header ─── */}
         <div className="relative shrink-0 border-b border-stone-subtle bg-paper px-12 pb-7 pt-12">
@@ -167,6 +222,58 @@ export function ToolsPane() {
           <ToolDetail key={selected.id} tool={selected} onClose={() => setSelected(null)} />
         )}
       </AnimatePresence>
+    </div>
+  );
+}
+
+function TabBar({ tab, onChange }: { tab: Tab; onChange: (t: Tab) => void }) {
+  const TABS: Array<{ id: Tab; label: string; sub: string; icon: typeof Package }> = [
+    { id: 'installed', label: 'Installed', sub: 'On this machine', icon: Package },
+    { id: 'marketplace', label: 'Marketplace', sub: 'Browse the live registry', icon: Globe },
+  ];
+  return (
+    <div className="flex shrink-0 items-stretch gap-2 border-b border-stone bg-paper-sunken px-12">
+      {TABS.map(({ id, label, sub, icon: Icon }) => {
+        const active = tab === id;
+        return (
+          <button
+            key={id}
+            type="button"
+            onClick={() => onChange(id)}
+            className={cn(
+              'group relative flex items-center gap-3 px-5 py-4 text-left transition-colors',
+              active ? 'text-ink' : 'text-ink-muted hover:text-ink',
+            )}
+          >
+            <span
+              className={cn(
+                'flex h-9 w-9 shrink-0 items-center justify-center rounded-lg border transition-colors',
+                active
+                  ? 'border-ink bg-ink text-paper'
+                  : 'border-stone bg-paper text-ink-muted group-hover:border-ink group-hover:text-ink',
+              )}
+            >
+              <Icon size={16} strokeWidth={1.8} />
+            </span>
+            <span className="flex flex-col leading-tight">
+              <span
+                className={cn(
+                  'font-display text-base',
+                  active ? 'text-ink' : 'text-ink-muted',
+                )}
+              >
+                {label}
+              </span>
+              <span className="font-mono text-2xs uppercase tracking-code text-ink-subtle">
+                {sub}
+              </span>
+            </span>
+            {active && (
+              <span className="absolute inset-x-0 -bottom-px h-0.5 bg-ink" />
+            )}
+          </button>
+        );
+      })}
     </div>
   );
 }
