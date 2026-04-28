@@ -24,5 +24,10 @@ export * from './cli-tools';
 // MCP server definitions + starter registry + mcp:* → SDK mcpServers resolver
 export * from './mcp-servers';
 
+// MCP marketplace — fetch + normalize from the official MCP registry / Glama,
+// plus the merge helper that combines starter + installed + fetched into the
+// runtime registry.
+export * from './mcp-marketplace';
+
 // User-level settings — Zod schema + defaults + merge helper
 export * from './settings';

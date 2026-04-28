@@ -243,6 +243,242 @@ export const STARTER_CLI_TOOLS: CliToolDef[] = [
     },
     tags: ['k8s', 'cloud'],
   },
+
+  // ─── AWS CLI ────────────────────────────────────────────────────────
+  {
+    id: 'aws.s3.ls',
+    name: 'List S3 objects',
+    description: 'List buckets or the contents of an S3 path.',
+    family: 'aws',
+    capabilities: ['cloud.storage.list'],
+    template: 'aws s3 ls {path}',
+    inputs: {
+      path: { type: 'string', default: '', description: 's3://bucket/prefix or empty for all buckets' },
+    },
+    pattern: '^aws s3 ls(?: .+)?$',
+    tags: ['aws', 'cloud'],
+  },
+  {
+    id: 'aws.lambda.invoke',
+    name: 'Invoke a Lambda function',
+    description: 'Invoke an AWS Lambda function synchronously.',
+    family: 'aws',
+    capabilities: ['cloud.compute.invoke'],
+    template: 'aws lambda invoke --function-name {name} --payload {payload} /tmp/lambda-out.json',
+    inputs: {
+      name: { type: 'string', required: true },
+      payload: { type: 'string', required: true, description: 'JSON payload (base64 or file://)' },
+    },
+    tags: ['aws', 'cloud'],
+  },
+  {
+    id: 'aws.ec2.describe',
+    name: 'Describe EC2 instances',
+    description: 'Inspect EC2 instances in the current region.',
+    family: 'aws',
+    capabilities: ['cloud.compute.list'],
+    template: 'aws ec2 describe-instances --output json',
+    inputs: {},
+    tags: ['aws', 'cloud'],
+  },
+
+  // ─── Docker ─────────────────────────────────────────────────────────
+  {
+    id: 'docker.ps',
+    name: 'docker ps',
+    description: 'List running containers.',
+    family: 'docker',
+    capabilities: ['cloud.container.list'],
+    template: 'docker ps --format json',
+    inputs: {},
+    tags: ['docker', 'container'],
+  },
+  {
+    id: 'docker.build',
+    name: 'docker build',
+    description: 'Build an image from a Dockerfile.',
+    family: 'docker',
+    capabilities: ['cloud.container.build'],
+    template: 'docker build -t {tag} {path}',
+    inputs: {
+      tag: { type: 'string', required: true },
+      path: { type: 'string', default: '.' },
+    },
+    tags: ['docker', 'container'],
+  },
+  {
+    id: 'docker.logs',
+    name: 'docker logs',
+    description: 'Fetch logs from a running container.',
+    family: 'docker',
+    capabilities: ['cloud.container.logs'],
+    template: 'docker logs --tail {tail} {container}',
+    inputs: {
+      container: { type: 'string', required: true },
+      tail: { type: 'integer', default: 200 },
+    },
+    tags: ['docker', 'container'],
+  },
+
+  // ─── npm / pnpm ─────────────────────────────────────────────────────
+  {
+    id: 'npm.install',
+    name: 'npm install',
+    description: 'Install a package into the current project.',
+    family: 'npm',
+    capabilities: ['code.dep.install'],
+    template: 'npm install {pkg}',
+    inputs: {
+      pkg: { type: 'string', required: true },
+    },
+    tags: ['npm', 'code'],
+  },
+  {
+    id: 'npm.run',
+    name: 'npm run',
+    description: 'Run a package.json script.',
+    family: 'npm',
+    capabilities: ['code.script.run'],
+    template: 'npm run {script}',
+    inputs: {
+      script: { type: 'string', required: true },
+    },
+    tags: ['npm', 'code'],
+  },
+  {
+    id: 'pnpm.install',
+    name: 'pnpm install',
+    description: 'Install dependencies via pnpm.',
+    family: 'pnpm',
+    capabilities: ['code.dep.install'],
+    template: 'pnpm install',
+    inputs: {},
+    tags: ['pnpm', 'code'],
+  },
+  {
+    id: 'pnpm.run',
+    name: 'pnpm run',
+    description: 'Run a pnpm workspace script.',
+    family: 'pnpm',
+    capabilities: ['code.script.run'],
+    template: 'pnpm run {script}',
+    inputs: {
+      script: { type: 'string', required: true },
+    },
+    tags: ['pnpm', 'code'],
+  },
+
+  // ─── jq / yq — data shaping ─────────────────────────────────────────
+  {
+    id: 'jq.run',
+    name: 'jq',
+    description: 'Filter and reshape JSON.',
+    family: 'jq',
+    capabilities: ['data.json.transform'],
+    template: 'jq {expr} {file}',
+    inputs: {
+      expr: { type: 'string', required: true, description: 'jq expression (quoted)' },
+      file: { type: 'string', default: '', description: 'Input file path or empty for stdin' },
+    },
+    pattern: '^jq .+$',
+    tags: ['data', 'json'],
+  },
+  {
+    id: 'yq.run',
+    name: 'yq',
+    description: 'Filter and reshape YAML.',
+    family: 'yq',
+    capabilities: ['data.yaml.transform'],
+    template: 'yq {expr} {file}',
+    inputs: {
+      expr: { type: 'string', required: true },
+      file: { type: 'string', default: '' },
+    },
+    pattern: '^yq .+$',
+    tags: ['data', 'yaml'],
+  },
+
+  // ─── Helm ───────────────────────────────────────────────────────────
+  {
+    id: 'helm.list',
+    name: 'helm list',
+    description: 'List Helm releases in the current namespace.',
+    family: 'helm',
+    capabilities: ['cloud.k8s.release.list'],
+    template: 'helm list --output json',
+    inputs: {},
+    tags: ['helm', 'k8s'],
+  },
+  {
+    id: 'helm.upgrade',
+    name: 'helm upgrade',
+    description: 'Install or upgrade a Helm release.',
+    family: 'helm',
+    capabilities: ['cloud.k8s.release.deploy'],
+    template: 'helm upgrade --install {release} {chart} --values {values}',
+    inputs: {
+      release: { type: 'string', required: true },
+      chart: { type: 'string', required: true },
+      values: { type: 'string', required: true, description: 'Path to values.yaml' },
+    },
+    tags: ['helm', 'k8s'],
+  },
+
+  // ─── Terraform ──────────────────────────────────────────────────────
+  {
+    id: 'terraform.plan',
+    name: 'terraform plan',
+    description: 'Generate a Terraform execution plan.',
+    family: 'terraform',
+    capabilities: ['cloud.iac.plan'],
+    template: 'terraform plan -no-color -out={out}',
+    inputs: {
+      out: { type: 'string', default: 'tfplan' },
+    },
+    tags: ['terraform', 'iac'],
+  },
+  {
+    id: 'terraform.apply',
+    name: 'terraform apply',
+    description: 'Apply a previously generated Terraform plan.',
+    family: 'terraform',
+    capabilities: ['cloud.iac.apply'],
+    template: 'terraform apply -no-color -auto-approve {plan}',
+    inputs: {
+      plan: { type: 'string', default: 'tfplan' },
+    },
+    tags: ['terraform', 'iac'],
+  },
+
+  // ─── Vercel ─────────────────────────────────────────────────────────
+  {
+    id: 'vercel.deploy',
+    name: 'vercel deploy',
+    description: 'Deploy the current project to Vercel.',
+    family: 'vercel',
+    capabilities: ['cloud.deploy.frontend'],
+    template: 'vercel deploy --yes --prod={prod}',
+    inputs: {
+      prod: { type: 'boolean', default: false },
+    },
+    tags: ['vercel', 'cloud'],
+  },
+
+  // ─── psql ───────────────────────────────────────────────────────────
+  {
+    id: 'psql.query',
+    name: 'psql -c',
+    description: 'Run a single SQL statement against a Postgres database.',
+    family: 'psql',
+    capabilities: ['data.sql.query'],
+    template: 'psql {dsn} -c {sql}',
+    inputs: {
+      dsn: { type: 'string', required: true, description: 'Postgres connection string' },
+      sql: { type: 'string', required: true, description: 'Single quoted SQL statement' },
+    },
+    pattern: '^psql .+ -c .+$',
+    tags: ['postgres', 'data'],
+  },
 ];
 
 // ─── Resolution ───────────────────────────────────────────────────────────
