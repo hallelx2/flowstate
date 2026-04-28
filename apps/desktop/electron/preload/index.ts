@@ -225,6 +225,51 @@ const flowstateApi = {
   /** Delete a secret. */
   secretsDelete: (name: string): Promise<boolean> =>
     ipcRenderer.invoke('secrets:delete', name),
+
+  // ─── CLI tool family catalog ──────────────────────────────────────────
+  // Renderer asks main to probe the local machine — does this CLI exist
+  // on PATH? Is it authenticated? Main shells out (with a short timeout)
+  // and returns booleans + version strings. Renderer never spawns child
+  // processes itself.
+
+  /**
+   * Probe a single CLI family — runs its `versionProbe` with a 3s timeout
+   * and returns whether it succeeded, plus the captured stdout (so the
+   * detail panel can show the version string).
+   */
+  cliProbe: (familyId: string): Promise<{
+    installed: boolean;
+    version?: string;
+    error?: string;
+  }> => ipcRenderer.invoke('cli:probe', familyId),
+
+  /** Probe ALL families in the catalogue. Parallel, returns one entry per family id. */
+  cliProbeAll: (): Promise<Record<string, { installed: boolean; version?: string }>> =>
+    ipcRenderer.invoke('cli:probe-all'),
+
+  /**
+   * Probe whether the CLI is currently authenticated. Only meaningful for
+   * families with `auth.kind === 'command'` (where there's a probe to run).
+   * Returns null when the family doesn't have an auth probe.
+   */
+  cliAuthProbe: (familyId: string): Promise<{ authenticated: boolean; output?: string } | null> =>
+    ipcRenderer.invoke('cli:auth-probe', familyId),
+
+  /**
+   * Spawn the auth command in a detached terminal window so the user
+   * completes the OAuth / device-code flow themselves. Returns true if
+   * the spawn succeeded — completion is detected via subsequent
+   * cliAuthProbe calls.
+   */
+  cliRunAuth: (familyId: string): Promise<boolean> =>
+    ipcRenderer.invoke('cli:run-auth', familyId),
+
+  /** Open an external URL (the install page) in the user's default browser. */
+  openExternal: (url: string): Promise<void> =>
+    ipcRenderer.invoke('flowstate:open-external', url),
+
+  /** OS this main process is running on — drives platform-specific install steps. */
+  platformId: (): NodeJS.Platform => process.platform,
 };
 
 contextBridge.exposeInMainWorld('flowstate', flowstateApi);

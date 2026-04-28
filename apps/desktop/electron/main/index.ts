@@ -3,13 +3,19 @@ import { dirname, join, normalize, resolve, sep } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { mkdir, readdir, readFile, rename, unlink, writeFile } from 'node:fs/promises';
 import { existsSync } from 'node:fs';
+import { exec, spawn } from 'node:child_process';
+import { promisify } from 'node:util';
+
+const execAsync = promisify(exec);
 import type { PermissionResult } from '@anthropic-ai/claude-agent-sdk';
 import {
+  STARTER_CLI_FAMILIES,
   SettingsSchema,
   checkPermissions,
   dedupeById,
   fetchMarketplace,
   fetchMarketplaceAll,
+  findCliFamily,
   mergeSettings,
   sortByQuality,
   type FetchResult,
@@ -663,6 +669,113 @@ app.whenReady().then(() => {
     delete current[name];
     await writeSecretsFile(current);
     return true;
+  });
+
+  // ─── CLI tool family probes ───────────────────────────────────────────
+  // Marketplace UI for CLI tools needs to know what's actually installed
+  // on this machine. We shell out to the family's `versionProbe` with a
+  // 3s timeout — anything slower is treated as not installed (better
+  // than hanging the UI on a misbehaving binary).
+
+  /**
+   * Run a probe command with a hard timeout. Returns whether it succeeded
+   * (exit 0) plus the trimmed stdout. Stderr is folded into `error` on
+   * failure. Never throws.
+   */
+  async function runProbe(
+    command: string,
+    timeoutMs = 3000,
+  ): Promise<{ ok: boolean; stdout?: string; error?: string }> {
+    try {
+      const { stdout } = await execAsync(command, {
+        timeout: timeoutMs,
+        windowsHide: true,
+      });
+      return { ok: true, stdout: stdout.toString().trim().slice(0, 500) };
+    } catch (err) {
+      const msg = err instanceof Error ? err.message : String(err);
+      return { ok: false, error: msg.slice(0, 500) };
+    }
+  }
+
+  // The CLI catalog ships in core. Looked up by id at request time so
+  // future hot-reloaded catalogs (community additions in
+  // `~/.flowstate/tools/cli/`) can take effect without restart.
+
+  ipcMain.handle('cli:probe', async (_e, familyId: string) => {
+    const family = findCliFamily(familyId);
+    if (!family) return { installed: false, error: `unknown family "${familyId}"` };
+    const r = await runProbe(family.versionProbe);
+    return { installed: r.ok, version: r.stdout, error: r.error };
+  });
+
+  ipcMain.handle('cli:probe-all', async () => {
+    const results: Record<string, { installed: boolean; version?: string }> = {};
+    await Promise.all(
+      STARTER_CLI_FAMILIES.map(async (family) => {
+        const r = await runProbe(family.versionProbe);
+        results[family.id] = { installed: r.ok, version: r.stdout };
+      }),
+    );
+    return results;
+  });
+
+  ipcMain.handle('cli:auth-probe', async (_e, familyId: string) => {
+    const family = findCliFamily(familyId);
+    if (!family) return null;
+    if (family.auth.kind === 'none') return { authenticated: true };
+    if (!family.auth.probe) return null;
+    const r = await runProbe(family.auth.probe, 5000);
+    return { authenticated: r.ok, output: r.stdout };
+  });
+
+  /**
+   * Spawn the auth command in a NEW terminal window so the user can
+   * complete the interactive flow. Doesn't block the main process; we
+   * return immediately and let the renderer poll cli:auth-probe to
+   * detect completion. Per-OS spawn approach:
+   *
+   *   macOS    open -a Terminal -- <cmd>
+   *   Windows  start cmd /k <cmd>
+   *   Linux    x-terminal-emulator -e <cmd> (best effort)
+   */
+  ipcMain.handle('cli:run-auth', async (_e, familyId: string): Promise<boolean> => {
+    const family = findCliFamily(familyId);
+    if (!family || family.auth.kind !== 'command') return false;
+    const cmd = family.auth.command;
+    try {
+      if (process.platform === 'darwin') {
+        spawn('osascript', [
+          '-e',
+          `tell application "Terminal" to do script "${cmd.replace(/"/g, '\\"')}"`,
+        ], { detached: true, stdio: 'ignore' }).unref();
+      } else if (process.platform === 'win32') {
+        spawn('cmd.exe', ['/c', 'start', 'cmd', '/k', cmd], {
+          detached: true,
+          stdio: 'ignore',
+          windowsHide: false,
+        }).unref();
+      } else {
+        // Linux — best-effort. We invoke through `sh -c` so the chosen
+        // terminal emulator can be replaced via $TERMINAL without us
+        // needing to detect every distro's default.
+        const term = process.env['TERMINAL'] ?? 'x-terminal-emulator';
+        spawn(term, ['-e', cmd], { detached: true, stdio: 'ignore' }).unref();
+      }
+      return true;
+    } catch (err) {
+      console.warn('[cli] run-auth spawn failed', err);
+      return false;
+    }
+  });
+
+  /** Generic open-external bridge for install pages, docs, etc. */
+  ipcMain.handle('flowstate:open-external', async (_e, url: string): Promise<void> => {
+    // Whitelist http/https/mailto so we don't accidentally exec a file URL.
+    if (!/^(https?|mailto):/i.test(url)) {
+      throw new Error(`Refused to open non-http URL: ${url}`);
+    }
+    await shell.openExternal(url);
   });
 
   createMainWindow();
