@@ -264,3 +264,38 @@ Color is used with extreme restraint — the interface is almost entirely black-
 4. Interactive elements use Interaction Blue (#1863dc) on hover only
 5. Keep surfaces white with cool gray borders — no warm tones
 6. Purple is for full-width sections, never card backgrounds
+
+## 10. Implementation
+
+This system is implemented via **shadcn/ui** primitives in [src/components/ui/](src/components/ui/). Don't hand-roll Buttons, Dialogs, DropdownMenus, Tabs, etc. — extend the generated components, or run `pnpm dlx shadcn@latest add <name>` from `apps/desktop/` to add new ones. Config lives in [components.json](components.json).
+
+### Token mapping
+
+The Cohere palette is canonical and lives at the top of [src/styles/globals.css](src/styles/globals.css) (`--color-paper`, `--color-ink`, `--color-accent-500`, `--radius-xl`, …). A second `@theme` block in the same file aliases shadcn's semantic tokens onto the Cohere ones, so shadcn primitives inherit the look automatically:
+
+| shadcn token              | Cohere source                              |
+|---------------------------|--------------------------------------------|
+| `--color-background`      | `--color-paper` (Pure White)               |
+| `--color-foreground`      | `--color-ink` (Cohere Black)               |
+| `--color-card`            | `--color-paper-raised`                     |
+| `--color-primary`         | `--color-ink` (= the Dark Solid CTA)       |
+| `--color-primary-foreground` | `--color-paper`                         |
+| `--color-muted`           | `--color-paper-sunken` (Snow)              |
+| `--color-muted-foreground`| `--color-ink-subtle` (Muted Slate)         |
+| `--color-accent`          | `--color-accent-500` (Interaction Blue)    |
+| `--color-border`          | `--color-stone-subtle` (#f2f2f2 hairline)  |
+| `--color-input`           | `--color-stone` (#d9d9dd)                  |
+| `--color-ring`            | `--color-accent-400` (Ring Blue)           |
+| `--radius`                | `1.375rem` (the 22px Cohere card)          |
+
+### Button variants (Cohere-tuned)
+
+[src/components/ui/button.tsx](src/components/ui/button.tsx) overrides the default cva variants to match DESIGN.md §4:
+
+- `<Button>` — Dark Solid CTA. `bg-primary text-primary-foreground`, hover → Interaction Blue.
+- `<Button variant="ghost">` — transparent, text shifts to Interaction Blue on hover (no bg fill).
+- `<Button variant="outline">` — hairline border, hover swaps border + text to Interaction Blue.
+
+### Cohere-specific motifs (no shadcn equivalent)
+
+These stay as bespoke utility classes in [globals.css](src/styles/globals.css): `.eyebrow` / `.eyebrow-wide` (uppercase mono section labels), `.pill`, `.cohere-card` (the 22px-radius hairline card surface), `.cohere-hero` and `.cohere-band` (the deep-purple full-width gradient bands).
