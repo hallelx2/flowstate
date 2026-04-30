@@ -2,6 +2,7 @@ import { useEffect, useMemo, useState } from 'react';
 import { motion, AnimatePresence } from 'motion/react';
 import { X, FileText, Plus } from 'lucide-react';
 import { cn } from '@/lib/cn';
+import { Button } from '@/components/ui/button';
 import { FIXTURE_TOOLS } from '@/components/tools/fixtures';
 import { ToolIcon } from '@/components/tools/tool-icon';
 import { kindLabel } from '@/components/tools/tool-meta';
@@ -309,20 +310,18 @@ export function CreateAgentModal({ open, onClose, onCreated }: Props) {
                   {selectedTools.length} tools · trigger: {triggerKind}
                 </span>
                 <div className="flex items-center gap-2">
-                  <button onClick={onClose} className="btn-ghost text-xs">
+                  <Button variant="ghost" size="sm" onClick={onClose} className="text-xs">
                     cancel
-                  </button>
-                  <button
+                  </Button>
+                  <Button
+                    size="sm"
                     onClick={handleSubmit}
                     disabled={!canSubmit}
-                    className={cn(
-                      'btn-dark text-xs',
-                      !canSubmit && 'cursor-not-allowed opacity-50',
-                    )}
+                    className={cn('text-xs', !canSubmit && 'cursor-not-allowed opacity-50')}
                   >
                     <Plus size={11} />
                     {saving ? 'creating…' : 'create agent'}
-                  </button>
+                  </Button>
                 </div>
               </div>
             </motion.div>

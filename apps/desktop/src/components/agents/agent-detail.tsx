@@ -22,6 +22,7 @@ import type {
 import { resolveCapabilities } from '@flowstate/core';
 import { FIXTURE_TOOLS } from '@/components/tools/fixtures';
 import { cn } from '@/lib/cn';
+import { Button } from '@/components/ui/button';
 import { MarkdownView } from '@/components/prose/markdown-view';
 import { SourceEditor } from '@/components/prose/source-editor';
 import { triggerLabel, toolRefDisplay } from './agent-meta';
@@ -124,10 +125,10 @@ function Header({
           </p>
         </div>
 
-        <button onClick={onRun} className="btn-dark shrink-0">
+        <Button onClick={onRun} className="shrink-0">
           <Play size={11} />
           run
-        </button>
+        </Button>
       </div>
 
       <div className="mt-6 flex items-center gap-1">
@@ -615,28 +616,26 @@ function Source({ agent }: { agent: Agent }) {
             {editing ? (
               <>
                 {selected.dirty && (
-                  <button onClick={handleRevert} className="btn-outline px-2 py-1 text-2xs">
+                  <Button variant="outline" size="xs" onClick={handleRevert}>
                     <Undo2 size={10} />
                     revert
-                  </button>
+                  </Button>
                 )}
-                <button
+                <Button
+                  size="xs"
                   onClick={handleSave}
                   disabled={savingPath === selected.path}
-                  className={cn(
-                    'btn-dark px-2 py-1 text-2xs',
-                    savingPath === selected.path && 'cursor-wait opacity-60',
-                  )}
+                  className={cn(savingPath === selected.path && 'cursor-wait opacity-60')}
                 >
                   <Save size={10} />
                   {savingPath === selected.path ? 'saving…' : selected.dirty ? 'save' : 'done'}
-                </button>
+                </Button>
               </>
             ) : (
-              <button onClick={() => setEditing(true)} className="btn-outline px-2 py-1 text-2xs">
+              <Button variant="outline" size="xs" onClick={() => setEditing(true)}>
                 <Pencil size={10} />
                 edit
-              </button>
+              </Button>
             )}
           </div>
         </div>

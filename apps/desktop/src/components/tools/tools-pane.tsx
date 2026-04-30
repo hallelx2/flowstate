@@ -13,6 +13,7 @@ import {
 } from 'lucide-react';
 import type { ToolKind, ToolManifest } from '@flowstate/core';
 import { cn } from '@/lib/cn';
+import { Button } from '@/components/ui/button';
 import { FIXTURE_TOOLS } from './fixtures';
 import { ToolCard } from './tool-card';
 import { ToolIcon } from './tool-icon';
@@ -138,10 +139,10 @@ function InstalledTab({
             </div>
 
             <div className="flex shrink-0 flex-col items-end gap-3">
-              <button className="btn-dark">
+              <Button>
                 <Plus size={13} />
                 Add tool
-              </button>
+              </Button>
               <span className="font-mono text-2xs uppercase tracking-code text-ink-subtle">
                 {FIXTURE_TOOLS.length} installed · {FIXTURE_TOOLS.filter((t) => t.authStatus === 'ready').length} ready
               </span>
@@ -302,9 +303,9 @@ function EmptyState({ query, onClear }: { query: string; onClear: () => void }) 
           'Try a different filter.'
         )}
       </p>
-      <button onClick={onClear} className="btn-outline mt-5">
+      <Button variant="outline" onClick={onClear} className="mt-5">
         clear
-      </button>
+      </Button>
     </div>
   );
 }
@@ -397,10 +398,10 @@ function ToolDetail({ tool, onClose }: { tool: ToolManifest; onClose: () => void
                   <span className="font-mono text-xs text-ink">{action.id}</span>
                   <span className="mt-0.5 text-2xs text-ink-muted">{action.summary}</span>
                 </div>
-                <button className="btn-outline px-2 py-1 text-2xs">
+                <Button variant="outline" size="xs">
                   <Play size={10} />
                   test
-                </button>
+                </Button>
               </li>
             ))}
           </ul>
@@ -420,7 +421,7 @@ function ToolDetail({ tool, onClose }: { tool: ToolManifest; onClose: () => void
           <SettingsIcon size={11} />
           configure
         </button>
-        <button className="btn-dark">add to agent</button>
+        <Button>add to agent</Button>
       </div>
     </motion.aside>
   );

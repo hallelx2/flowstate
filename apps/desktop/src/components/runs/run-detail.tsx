@@ -14,6 +14,7 @@ import type { Run } from '@/lib/run-store';
 import { FlowNode, type FlowNodeData } from '@/components/flow/nodes';
 import { formatDuration, statusDotColor, statusLabel } from './run-utils';
 import { cn } from '@/lib/cn';
+import { Button } from '@/components/ui/button';
 import { ApprovalBanner } from './approval-banner';
 
 const nodeTypes = { flow: FlowNode };
@@ -159,10 +160,10 @@ function RunStat({ label, value }: { label: string; value: string }) {
 
 function ControlButton({ icon, label }: { icon: React.ReactNode; label: string }) {
   return (
-    <button className="btn-outline px-2.5 py-1 text-xs">
+    <Button variant="outline" size="sm" className="text-xs">
       {icon}
       {label}
-    </button>
+    </Button>
   );
 }
 

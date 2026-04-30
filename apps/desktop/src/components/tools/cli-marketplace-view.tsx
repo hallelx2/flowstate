@@ -23,6 +23,7 @@ import {
   type CliToolDef,
 } from '@flowstate/core';
 import { cn } from '@/lib/cn';
+import { Button } from '@/components/ui/button';
 import {
   cliStore,
   filterFamilies,
@@ -598,7 +599,7 @@ function CliAuthSection({
                 $ {cfg.command}
               </code>
             </div>
-            <button
+            <Button
               type="button"
               onClick={async () => {
                 const ok = await cliStore.runAuth(family.id);
@@ -608,11 +609,10 @@ function CliAuthSection({
                   setTimeout(() => void cliStore.refreshFamily(family.id), 6000);
                 }
               }}
-              className="btn-dark"
             >
               <Terminal size={12} />
               {ready ? 'Re-run' : 'Open terminal'}
-            </button>
+            </Button>
           </div>
         </div>
       </section>

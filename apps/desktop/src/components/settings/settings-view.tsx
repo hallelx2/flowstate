@@ -12,6 +12,7 @@ import {
   ChevronRight,
 } from 'lucide-react';
 import { cn } from '@/lib/cn';
+import { Button } from '@/components/ui/button';
 import { FlowstateMark } from '@/components/brand/flowstate-mark';
 import { ClaudeMark } from '@/components/brand/claude-mark';
 import { ModelPicker } from './model-picker';
@@ -516,7 +517,7 @@ function PathInput({
           : { defaultValue })}
         className="font-mono text-xs"
       />
-      <button className="btn-outline shrink-0 px-2.5 py-1.5 text-xs">choose…</button>
+      <Button variant="outline" size="sm" className="shrink-0 text-xs">choose…</Button>
     </div>
   );
 }

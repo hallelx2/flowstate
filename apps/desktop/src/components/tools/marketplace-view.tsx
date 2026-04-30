@@ -19,6 +19,7 @@ import {
 } from 'lucide-react';
 import { qualityTier, type MarketplaceSourceId, type McpServerDef } from '@flowstate/core';
 import { cn } from '@/lib/cn';
+import { Button } from '@/components/ui/button';
 import {
   applyFilter,
   applySort,
@@ -669,16 +670,16 @@ function DetailFooter({
           Uninstall
         </button>
       ) : (
-        <button
+        <Button
           type="button"
           onClick={onInstall}
           disabled={busy || blocked}
-          className="btn-dark disabled:opacity-40"
+          className="disabled:opacity-40"
           title={blocked ? 'Set the required keys above first' : undefined}
         >
           {busy ? <Loader2 size={12} className="animate-spin" /> : <Download size={12} />}
           {blocked ? 'Set keys to install' : 'Install'}
-        </button>
+        </Button>
       )}
     </div>
   );

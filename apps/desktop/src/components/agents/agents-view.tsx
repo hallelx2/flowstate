@@ -1,6 +1,7 @@
 import { useMemo, useState } from 'react';
 import { Search, Plus, X } from 'lucide-react';
 import { AGENTS } from '@/agents';
+import { Button } from '@/components/ui/button';
 import { AgentList } from './agent-list';
 import { AgentDetail } from './agent-detail';
 import { CreateAgentModal } from './create-agent-modal';
@@ -77,9 +78,9 @@ export function AgentsView({ onRunStarted }: AgentsViewProps = {}) {
             <p className="mt-2 max-w-sm text-sm text-ink-muted">
               Pick an agent from the list, or create a new one.
             </p>
-            <button onClick={() => setCreating(true)} className="btn-dark mt-5">
+            <Button onClick={() => setCreating(true)} className="mt-5">
               <Plus size={11} /> create agent
-            </button>
+            </Button>
           </div>
         )}
       </main>
