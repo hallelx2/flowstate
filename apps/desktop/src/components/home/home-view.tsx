@@ -2,7 +2,8 @@ import { useState } from 'react';
 import { motion } from 'motion/react';
 import { Sparkles, ArrowUpRight, Wrench, History, Plus, Command } from 'lucide-react';
 import { cn } from '@/lib/cn';
-import { startSdkRun } from '@/lib/sdk-runner';
+import { conductorStore, useConductor } from '@/lib/conductor-store';
+import { ConductorThread } from './conductor-thread';
 
 interface Props {
   onOpenTools: () => void;
@@ -34,16 +35,12 @@ const SUGGESTED = [
 export function HomeView({ onOpenTools, onOpenRuns, onRunStarted }: Props) {
   const [draft, setDraft] = useState('');
   const greeting = useGreeting();
+  const conductor = useConductor();
+  const hasThread = conductor.items.length > 0 || conductor.status === 'thinking';
 
   const handleStart = () => {
     if (!draft.trim()) return;
-    startSdkRun({
-      agentId: null, // ad-hoc run
-      agentName: 'Ad-hoc',
-      prompt: draft.trim(),
-      // No system prompt — Claude reasons from the user prompt directly.
-      // Tools default to the SDK built-ins (Read/Write/Edit/Bash).
-    });
+    void conductorStore.send(draft.trim());
     setDraft('');
     onRunStarted();
   };
@@ -63,24 +60,35 @@ export function HomeView({ onOpenTools, onOpenRuns, onRunStarted }: Props) {
       <div className="relative mx-auto grid max-w-6xl grid-cols-12 gap-10 px-12 pb-24 pt-16">
         {/* ─── Left column · the working area ─── */}
         <div className="col-span-8 flex flex-col">
-          {/* Greeting */}
-          <motion.div
-            initial={{ opacity: 0, y: 10 }}
-            animate={{ opacity: 1, y: 0 }}
-            transition={{ duration: 0.55, ease: [0.2, 0.8, 0.2, 1] }}
-            className="mb-12"
-          >
-            <p className="eyebrow mb-3">{greeting.label}</p>
-            <h1
-              className="font-display text-5xl text-ink"
+          {/* Greeting (only when no active thread — once you start, it folds away) */}
+          {!hasThread && (
+            <motion.div
+              initial={{ opacity: 0, y: 10 }}
+              animate={{ opacity: 1, y: 0 }}
+              transition={{ duration: 0.55, ease: [0.2, 0.8, 0.2, 1] }}
+              className="mb-12"
             >
-              {greeting.headline}
-              <span className="ml-1 italic font-light text-ink-subtle">.</span>
-            </h1>
-            <p className="mt-4 max-w-xl text-base text-ink-muted">
-              What should we work on together? Describe it the way you'd describe it to a&nbsp;teammate.
-            </p>
-          </motion.div>
+              <p className="eyebrow mb-3">{greeting.label}</p>
+              <h1 className="font-display text-5xl text-ink">
+                {greeting.headline}
+                <span className="ml-1 italic font-light text-ink-subtle">.</span>
+              </h1>
+              <p className="mt-4 max-w-xl text-base text-ink-muted">
+                What should we work on together? Describe it the way you'd describe it to a&nbsp;teammate.
+              </p>
+            </motion.div>
+          )}
+
+          {/* Active conductor thread — folds in once a turn has been sent */}
+          {hasThread && (
+            <motion.section
+              initial={{ opacity: 0, y: 8 }}
+              animate={{ opacity: 1, y: 0 }}
+              className="mb-6 max-h-[55vh] rounded-xl border border-stone-subtle bg-paper-raised"
+            >
+              <ConductorThread />
+            </motion.section>
+          )}
 
           {/* The composer — Cohere card, focus turns border to Focus Purple */}
           <motion.section
