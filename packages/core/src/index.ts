@@ -2,6 +2,7 @@
 export * from './types/agent';
 export * from './types/tool';
 export * from './types/run';
+export * from './types/workspace';
 
 // Schemas (Zod) — for runtime validation in loaders, forms, IPC boundaries
 export * from './schema';

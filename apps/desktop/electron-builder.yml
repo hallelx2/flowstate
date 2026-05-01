@@ -6,6 +6,12 @@ directories:
 files:
   - out
   - package.json
+# better-sqlite3 ships a precompiled .node binary that asar can't load
+# (V8 refuses to dlopen from inside an archive). Unpack it so the .node
+# resolves at runtime under app.asar.unpacked/.
+asarUnpack:
+  - "**/node_modules/better-sqlite3/**/*"
+  - "**/node_modules/bindings/**/*"
 mac:
   category: public.app-category.productivity
   target:

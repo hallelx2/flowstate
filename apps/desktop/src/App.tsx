@@ -8,6 +8,7 @@ import { AgentsView } from './components/agents/agents-view';
 import { RunsView } from './components/runs/runs-view';
 import { SettingsView } from './components/settings/settings-view';
 import { hydrateSettings, settingsStore } from './lib/settings-store';
+import { hydrateWorkspaces } from './lib/workspace-store';
 
 export type View = 'home' | 'agents' | 'tools' | 'runs' | 'settings';
 
@@ -20,6 +21,7 @@ export function App() {
     // animation. The animation gives the SSD a few hundred ms of cover —
     // the store is ready well before the user can do anything with it.
     void hydrateSettings();
+    void hydrateWorkspaces();
     const t = setTimeout(() => setBooting(false), 2400);
 
     // Best-effort flush before the renderer process shuts down. Keeps the

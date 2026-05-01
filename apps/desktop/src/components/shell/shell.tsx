@@ -3,6 +3,7 @@ import { Home, Bot, Wrench, History, Settings } from 'lucide-react';
 import { cn } from '@/lib/cn';
 import type { View } from '@/App';
 import { FlowstateMark } from '@/components/brand/flowstate-mark';
+import { WorkspaceSwitcher } from './workspace-switcher';
 
 const NAV: Array<{ id: View; label: string; icon: typeof Home }> = [
   { id: 'home', label: 'Home', icon: Home },
@@ -31,9 +32,7 @@ export function Shell({ active, onNavigate, children }: ShellProps) {
           <span className="font-display text-sm tracking-tight text-ink">
             <span className="italic font-light">flow</span>state
           </span>
-          <span className="font-mono text-2xs uppercase tracking-code text-ink-subtle">
-            / untitled workspace
-          </span>
+          <WorkspaceSwitcher />
         </div>
         <div className="app-no-drag flex items-center gap-3">
           <StatusPill label="Claude · Sonnet" tone="active" />
