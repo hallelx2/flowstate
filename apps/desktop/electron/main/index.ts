@@ -23,8 +23,33 @@ import {
   type McpServerDef,
   type RegistryFetcher,
   type Settings,
+  type Workspace,
+  type WorkspaceInput,
 } from '@flowstate/core';
 import { runAgent, type RuntimeRunRequest } from './agent-runtime';
+import {
+  bashAllowPatternsFromTools,
+  loadInstalledMcpDefs,
+  readApiKey,
+  resolveAgentMcpServers,
+  type RunAgentRequest,
+} from './agent-orchestrator';
+import {
+  ConductorRuntime,
+  type ConductorEvent,
+  type ConductorRendererBridge,
+} from './conductor/runtime';
+import { listThreads, deleteThread, setActiveThread } from './conductor/sessions';
+import { runStoreMain } from './run-registry';
+import {
+  closeDb,
+  createWorkspace,
+  deleteWorkspace,
+  getActiveWorkspace,
+  listWorkspaces,
+  switchWorkspace,
+  updateWorkspace,
+} from './workspace-db';
 
 const __dirname = fileURLToPath(new URL('.', import.meta.url));
 
@@ -40,38 +65,20 @@ const inFlight = new Map<string, AbortController>();
  */
 const pendingApprovals = new Map<string, (result: PermissionResult) => void>();
 
-/**
- * Where agent files live on disk.
- *
- * Dev: the source directory `apps/desktop/src/agents/` so writes round-trip
- *      through vite HMR (you'll see the change reflect immediately).
- * Prod: <userData>/agents/ — the canonical user directory once packaged.
- */
-function agentsRoot(): string {
-  if (isDev) {
-    // out/main/index.js -> apps/desktop/src/agents
-    return resolve(__dirname, '..', '..', 'src', 'agents');
-  }
-  return join(app.getPath('userData'), 'agents');
-}
+// Filesystem paths live in ./paths so the IPC handlers here and the
+// Conductor's in-process tools touch the exact same locations.
+import {
+  agentsRoot,
+  installedMcpDir,
+  marketplaceCacheDir,
+  secretsPath,
+  settingsPath,
+} from './paths';
 
 /**
- * Where installed MCP server defs live.
- *
- * One JSON file per server (`<id>.json`) so users can hand-edit a single
- * entry without deserializing the whole catalogue. Files written here are
- * picked up by the runtime registry on next agent run.
- */
-/**
- * Disk-backed cache for the registry fetch-all result. Two reasons:
- *
- *   1. Pulling the whole official registry is ~30 paginated round-trips.
- *      Doing that on every Marketplace tab open is wasteful (and slow on
- *      cold connections).
- *   2. Offline browsing — once cached, users can scroll the catalogue
- *      and search across it even without network.
- *
- * TTL is 6h; the renderer can force a refresh via `force: true`.
+ * Disk-backed cache for the marketplace registry fetch-all result.
+ * Pulling the whole registry is ~30 paginated round-trips, and offline
+ * browsing is a usability win — TTL is 6h; renderer can force a refresh.
  */
 const MARKETPLACE_TTL_MS = 6 * 60 * 60 * 1000;
 
@@ -85,53 +92,8 @@ interface MarketplaceCacheFile {
   servers: McpServerDef[];
 }
 
-function marketplaceCacheDir(): string {
-  if (isDev) {
-    return resolve(__dirname, '..', '..', '..', '..', '.flowstate', 'mcp-cache');
-  }
-  return join(app.getPath('userData'), 'mcp-cache');
-}
-
 function marketplaceCachePath(source: MarketplaceSourceId): string {
   return join(marketplaceCacheDir(), `${source}.json`);
-}
-
-function installedMcpDir(): string {
-  if (isDev) {
-    return resolve(__dirname, '..', '..', '..', '..', '.flowstate', 'tools', 'mcp');
-  }
-  return join(app.getPath('userData'), 'tools', 'mcp');
-}
-
-/**
- * Where the encrypted-at-rest secrets keychain lives. Stored separately
- * from settings.json because the values are sensitive — kept out of git
- * even in dev (added to .gitignore).
- *
- * Format: { "<NAME>": "<base64-of-electron-safeStorage-cipher>" }
- * Falls back to plaintext on platforms that don't support safeStorage,
- * with a console warning. The renderer never sees decrypted values.
- */
-function secretsPath(): string {
-  if (isDev) {
-    return resolve(__dirname, '..', '..', '..', '..', '.flowstate', 'secrets.json');
-  }
-  return join(app.getPath('userData'), 'secrets.json');
-}
-
-/**
- * Where settings.json lives.
- *
- * Dev: the project's `.flowstate/settings.json` so config changes round-trip
- *      through git and stay reviewable while developing.
- * Prod: <userData>/settings.json — standard OS app-data location.
- */
-function settingsPath(): string {
-  if (isDev) {
-    // out/main/index.js -> .flowstate/settings.json
-    return resolve(__dirname, '..', '..', '..', '..', '.flowstate', 'settings.json');
-  }
-  return join(app.getPath('userData'), 'settings.json');
 }
 
 /**
@@ -267,6 +229,67 @@ if (process.platform === 'win32') {
   app.setAppUserModelId('com.flowstate.desktop');
 }
 
+// ─── Conductor state (one runtime per BrowserWindow webContents id) ─────
+// The Conductor is intentionally per-window so multiple windows can each
+// have their own resumable thread; in practice the app uses one window.
+
+interface ConductorPending {
+  approvals: Map<string, (decision: { approved: boolean; reason?: string }) => void>;
+  userInputs: Map<string, (answer: string) => void>;
+  userInputErrors: Map<string, (err: Error) => void>;
+}
+const conductors = new Map<number, ConductorRuntime>();
+/** Promise tracker for in-flight `conductor:start` calls — dedupes concurrent starts. */
+const conductorStarting = new Map<number, Promise<{ ok: true }>>();
+const conductorPending = new Map<number, ConductorPending>();
+
+function pendingForWebContents(id: number): ConductorPending {
+  let p = conductorPending.get(id);
+  if (!p) {
+    p = {
+      approvals: new Map(),
+      userInputs: new Map(),
+      userInputErrors: new Map(),
+    };
+    conductorPending.set(id, p);
+  }
+  return p;
+}
+
+/**
+ * Tear down everything tied to a webContents id. Pending approval +
+ * userInput promises are rejected so the SDK doesn't hang forever waiting
+ * on a closed window. Called on `webContents.destroyed` and on uninstall.
+ */
+async function destroyConductor(wcId: number): Promise<void> {
+  const runtime = conductors.get(wcId);
+  conductors.delete(wcId);
+  conductorStarting.delete(wcId);
+  const pending = conductorPending.get(wcId);
+  conductorPending.delete(wcId);
+  if (pending) {
+    for (const resolver of pending.approvals.values()) {
+      resolver({ approved: false, reason: 'window closed' });
+    }
+    for (const resolver of pending.userInputs.values()) {
+      resolver(''); // best-effort — let the tool surface "" as a no-input
+    }
+    for (const reject of pending.userInputErrors.values()) {
+      reject(new Error('window closed'));
+    }
+    pending.approvals.clear();
+    pending.userInputs.clear();
+    pending.userInputErrors.clear();
+  }
+  if (runtime) {
+    try {
+      await runtime.close();
+    } catch {
+      // Closing a half-started runtime can throw — swallow.
+    }
+  }
+}
+
 app.whenReady().then(() => {
   // ─── System info ──────────────────────────────────────────────────────
   ipcMain.handle('flowstate:platform', () => ({
@@ -282,9 +305,27 @@ app.whenReady().then(() => {
   // the SDK + streams events back via `agent:event`. Renderer adapts those
   // events into runStore mutations (see lib/sdk-runner.ts).
 
-  ipcMain.handle('agent:run', async (event, req: RuntimeRunRequest) => {
+  ipcMain.handle('agent:run', async (event, req: RunAgentRequest) => {
     const controller = new AbortController();
     inFlight.set(req.runId, controller);
+
+    // Inject the user's stored API key into env BEFORE the SDK reads it.
+    // The SDK's auth resolution order checks ANTHROPIC_API_KEY first, so
+    // this lets the keychain take precedence over whatever was inherited
+    // from the launching shell. We restore on completion.
+    const previousApiKey = process.env['ANTHROPIC_API_KEY'];
+    const userApiKey = await readApiKey();
+    if (userApiKey) process.env['ANTHROPIC_API_KEY'] = userApiKey;
+
+    // Resolve mcp:* refs to SDK config, injecting secrets from keychain.
+    const mcp = await resolveAgentMcpServers(req.agentTools ?? []);
+    if (mcp.missingSecrets.length > 0) {
+      console.warn(
+        `[agent:run] missing secrets — agent may fail at tool-use time:`,
+        mcp.missingSecrets,
+      );
+    }
+    const bashAllowPatterns = bashAllowPatternsFromTools(req.agentTools ?? []);
 
     // Build a canUseTool callback with two layers:
     //   1. Pure permission gate (denies hard-violations without prompting)
@@ -300,7 +341,7 @@ app.whenReady().then(() => {
         input,
         req.permissions,
         req.guardrails,
-        req.bashAllowPatterns,
+        bashAllowPatterns,
       );
       if (decision.decision === 'deny') {
         return {
@@ -309,13 +350,13 @@ app.whenReady().then(() => {
         };
       }
 
-      // Layer 2: HITL banner. Either policy explicitly requires approval,
-      // or permissionMode is "default" (the SDK's normal prompt flow).
-      // permissionMode 'bypassPermissions' skips the banner UNLESS the
-      // tool was on the approvalRequired list.
-      const mustAsk =
-        decision.decision === 'requires_approval' ||
-        req.guardrails?.permissionMode !== 'bypassPermissions';
+      // Layer 2: HITL banner. Ask when policy says ask, OR when the agent
+      // is in permissionMode 'default' (SDK's normal prompt flow). The
+      // 'acceptEdits' / 'plan' / 'bypassPermissions' modes are explicit
+      // opt-outs from the per-call prompt — the gate's allow above already
+      // verified the call is policy-safe, so let it through.
+      const mode = req.guardrails?.permissionMode ?? 'default';
+      const mustAsk = decision.decision === 'requires_approval' || mode === 'default';
 
       if (!mustAsk) {
         return { behavior: 'allow' };
@@ -338,23 +379,326 @@ app.whenReady().then(() => {
     };
 
     try {
-      await runAgent({ ...req, abortSignal: controller.signal, canUseTool }, (ev) => {
+      const runtimeReq: RuntimeRunRequest = {
+        runId: req.runId,
+        prompt: req.prompt,
+        agentSystemPrompt: req.agentSystemPrompt,
+        allowedTools: req.allowedTools,
+        cwd: req.cwd,
+        model: req.model,
+        permissions: req.permissions,
+        guardrails: req.guardrails,
+        budget: req.budget,
+        bashAllowPatterns,
+        mcpServers: mcp.sdkServers,
+        abortSignal: controller.signal,
+        canUseTool,
+      };
+      await runAgent(runtimeReq, (ev) => {
         event.sender.send('agent:event', ev);
       });
     } finally {
       inFlight.delete(req.runId);
+      // Restore env so subsequent runs see the original shell-inherited value.
+      if (previousApiKey == null) delete process.env['ANTHROPIC_API_KEY'];
+      else process.env['ANTHROPIC_API_KEY'] = previousApiKey;
     }
   });
+
+  // ─── Self-test: smoke-test the SDK reachability ────────────────────────
+  // Renderer calls this from Settings → "Test connection". We send a tiny
+  // prompt with no tools so it returns in seconds. Result tells the UI
+  // whether auth is set + the SDK is reachable, without spinning up MCP
+  // servers or running anything destructive.
+  ipcMain.handle(
+    'agent:selftest',
+    async (): Promise<{
+      ok: boolean;
+      message: string;
+      apiKeySource?: 'keychain' | 'env' | 'none';
+      tokensIn?: number;
+      tokensOut?: number;
+      durationMs?: number;
+    }> => {
+      const previous = process.env['ANTHROPIC_API_KEY'];
+      const stored = await readApiKey();
+      let apiKeySource: 'keychain' | 'env' | 'none' = 'none';
+      if (stored) {
+        process.env['ANTHROPIC_API_KEY'] = stored;
+        apiKeySource = 'keychain';
+      } else if (previous) {
+        apiKeySource = 'env';
+      }
+
+      const startedAt = Date.now();
+      let tokensIn = 0;
+      let tokensOut = 0;
+
+      try {
+        await runAgent(
+          {
+            runId: `selftest_${Date.now()}`,
+            prompt: 'Reply with the single word "ok".',
+            allowedTools: [],
+            guardrails: { maxTurns: 1, disallowedTools: ['Bash', 'Write', 'Edit', 'Read'] },
+            budget: { runtimeMs: 30_000 },
+          },
+          (ev) => {
+            if (ev.type === 'step' && ev.step?.tokens) {
+              tokensIn += ev.step.tokens.input;
+              tokensOut += ev.step.tokens.output;
+            }
+          },
+        );
+        return {
+          ok: true,
+          message: 'SDK reachable, auth ok.',
+          apiKeySource,
+          tokensIn,
+          tokensOut,
+          durationMs: Date.now() - startedAt,
+        };
+      } catch (err) {
+        const message = err instanceof Error ? err.message : String(err);
+        return {
+          ok: false,
+          message,
+          apiKeySource,
+          durationMs: Date.now() - startedAt,
+        };
+      } finally {
+        if (previous == null) delete process.env['ANTHROPIC_API_KEY'];
+        else process.env['ANTHROPIC_API_KEY'] = previous;
+      }
+    },
+  );
 
   ipcMain.handle('agent:cancel', (_event, runId: string) => {
     const ctrl = inFlight.get(runId);
     if (ctrl) {
       ctrl.abort();
       inFlight.delete(runId);
+      runStoreMain.setStatus(runId, 'cancelled');
       return true;
     }
     return false;
   });
+
+  // ─── Conductor IPC ────────────────────────────────────────────────────
+  // The Conductor is one long-lived `query()` per BrowserWindow. The
+  // renderer talks to it through `conductor:send` (push a user turn) and
+  // subscribes to `conductor:event` (one-way stream).
+
+  ipcMain.handle('conductor:start', async (event): Promise<{ ok: true }> => {
+    const wcId = event.sender.id;
+    // Idempotent under concurrent calls: if a start is already in flight,
+    // every caller awaits the same promise instead of racing into a
+    // double-construction.
+    if (conductors.has(wcId)) return { ok: true };
+    const startInFlight = conductorStarting.get(wcId);
+    if (startInFlight) return startInFlight;
+
+    const startPromise = (async () => {
+      // Workspace state must be fresh per call, not closed-over from
+      // start(). The renderer can switch workspaces while the runtime is
+      // alive; the bridge below re-resolves on every read.
+      const wsForBootstrap = getActiveWorkspace();
+      const workspaceId = wsForBootstrap?.id ?? 'default';
+
+      const bridge: ConductorRendererBridge = {
+        emit: (ev: ConductorEvent) => {
+          if (event.sender.isDestroyed()) return;
+          event.sender.send('conductor:event', ev);
+        },
+        requestApproval: (req) =>
+          new Promise((resolve) => {
+            const id =
+              req.toolUseId ?? `appr_${Date.now()}_${Math.random().toString(36).slice(2, 6)}`;
+            pendingForWebContents(wcId).approvals.set(id, resolve);
+            if (event.sender.isDestroyed()) {
+              resolve({ approved: false, reason: 'window closed' });
+              return;
+            }
+            event.sender.send('conductor:approval-request', {
+              id,
+              toolName: req.toolName,
+              input: req.input,
+            });
+          }),
+        requestUserInput: (prompt) =>
+          new Promise((resolve, reject) => {
+            const id = `ask_${Date.now()}_${Math.random().toString(36).slice(2, 6)}`;
+            const p = pendingForWebContents(wcId);
+            p.userInputs.set(id, resolve);
+            p.userInputErrors.set(id, reject);
+            if (event.sender.isDestroyed()) {
+              reject(new Error('window closed'));
+              return;
+            }
+            event.sender.send('conductor:user-input-request', {
+              id,
+              question: prompt.question,
+              placeholder: prompt.placeholder,
+              secret: prompt.secret === true,
+            });
+          }),
+        workspaceSnapshot: async () => {
+          // Re-resolve every prompt — workspace switches during the
+          // session must propagate. Same for the secret + run lists.
+          const ws = getActiveWorkspace();
+          const installedMcp = await loadInstalledMcpDefs();
+          const populatedSecrets = await listSecretNames();
+          return {
+            workspaceName: ws?.name ?? null,
+            cwd: ws?.agentsDir ?? null,
+            installedMcpIds: installedMcp.map((d) => d.id),
+            // CLI probes are expensive (3s timeout × N families) — leave
+            // empty here; the probe_cli_family tool fetches on demand.
+            cliFamiliesInstalled: [],
+            populatedSecrets,
+            recentRuns: runStoreMain.list().slice(0, 5).map((r) => ({
+              id: r.id,
+              agentName: r.agentName,
+              status: r.status,
+            })),
+          };
+        },
+        activeWorkspace: () => {
+          const ws = getActiveWorkspace();
+          return ws
+            ? { id: ws.id, name: ws.name, cwd: ws.agentsDir ?? undefined }
+            : null;
+        },
+        listRuns: () => runStoreMain.list(),
+        cancelRun: (id) => {
+          // cancelRun in the registry aborts the controller; also fire
+          // the inFlight map's controller (legacy agent:run path).
+          const ctrl = inFlight.get(id);
+          if (ctrl) {
+            ctrl.abort();
+            inFlight.delete(id);
+          }
+          return runStoreMain.cancel(id);
+        },
+        forwardInnerRunEvents: (runId, ev) => {
+          if (event.sender.isDestroyed()) return;
+          // Mirror to the regular agent:event stream so the existing
+          // sdk-runner / runStore wiring picks it up unchanged.
+          event.sender.send('agent:event', ev);
+          const e = ev as { type?: string };
+          if (e.type === 'started') runStoreMain.setStatus(runId, 'running');
+          else if (e.type === 'completed') runStoreMain.setStatus(runId, 'completed');
+          else if (e.type === 'failed') runStoreMain.setStatus(runId, 'failed');
+        },
+      };
+
+      const runtime = new ConductorRuntime(workspaceId, bridge);
+      conductors.set(wcId, runtime);
+      await runtime.start();
+
+      // Tear down on window close so we don't leak runtimes + pending promises.
+      event.sender.once('destroyed', () => {
+        void destroyConductor(wcId);
+      });
+
+      return { ok: true } as const;
+    })();
+
+    conductorStarting.set(wcId, startPromise);
+    try {
+      return await startPromise;
+    } finally {
+      conductorStarting.delete(wcId);
+    }
+  });
+
+  ipcMain.handle(
+    'conductor:send',
+    (event, payload: { text: string }): { turnId: string } => {
+      const runtime = conductors.get(event.sender.id);
+      if (!runtime) throw new Error('Conductor not started for this window');
+      const turnId = runtime.send(payload.text);
+      return { turnId };
+    },
+  );
+
+  ipcMain.handle('conductor:interrupt', async (event): Promise<boolean> => {
+    const runtime = conductors.get(event.sender.id);
+    if (!runtime) return false;
+    await runtime.interrupt();
+    return true;
+  });
+
+  ipcMain.handle(
+    'conductor:set-permission-mode',
+    async (event, mode: 'default' | 'acceptEdits' | 'plan' | 'bypassPermissions'): Promise<boolean> => {
+      const runtime = conductors.get(event.sender.id);
+      if (!runtime) return false;
+      await runtime.setPermissionMode(mode);
+      return true;
+    },
+  );
+
+  ipcMain.handle(
+    'conductor:approval-response',
+    (event, payload: { id: string; approved: boolean; reason?: string }): boolean => {
+      const p = pendingForWebContents(event.sender.id);
+      const resolver = p.approvals.get(payload.id);
+      if (!resolver) return false;
+      resolver({ approved: payload.approved, reason: payload.reason });
+      p.approvals.delete(payload.id);
+      return true;
+    },
+  );
+
+  ipcMain.handle(
+    'conductor:user-input-response',
+    (event, payload: { id: string; answer?: string; cancelled?: boolean }): boolean => {
+      const p = pendingForWebContents(event.sender.id);
+      if (payload.cancelled) {
+        const reject = p.userInputErrors.get(payload.id);
+        if (reject) reject(new Error('cancelled'));
+      } else {
+        const resolve = p.userInputs.get(payload.id);
+        if (resolve) resolve(payload.answer ?? '');
+      }
+      p.userInputs.delete(payload.id);
+      p.userInputErrors.delete(payload.id);
+      return true;
+    },
+  );
+
+  ipcMain.handle('conductor:list-threads', async () => {
+    const ws = getActiveWorkspace();
+    if (!ws) return [];
+    return listThreads(ws.id);
+  });
+
+  ipcMain.handle('conductor:set-active-thread', async (_event, sessionId: string) => {
+    const ws = getActiveWorkspace();
+    if (!ws) return false;
+    await setActiveThread(ws.id, sessionId);
+    return true;
+  });
+
+  ipcMain.handle('conductor:delete-thread', async (_event, sessionId: string) => {
+    const ws = getActiveWorkspace();
+    if (!ws) return false;
+    await deleteThread(ws.id, sessionId);
+    return true;
+  });
+
+  // Helper: list secret names without going through the (renderer-only) IPC.
+  async function listSecretNames(): Promise<string[]> {
+    const path = secretsPath();
+    if (!existsSync(path)) return [];
+    try {
+      const raw = await readFile(path, 'utf8');
+      return Object.keys(JSON.parse(raw) as Record<string, string>);
+    } catch {
+      return [];
+    }
+  }
 
   /**
    * The renderer calls this when the user clicks Approve / Deny on the
@@ -426,6 +770,34 @@ app.whenReady().then(() => {
   );
 
   ipcMain.handle('settings:path', (): string => settingsPath());
+
+  // ─── Workspaces (SQLite-backed) ───────────────────────────────────────
+  // The title-bar workspace switcher reads/writes through these. The DB
+  // file lives next to settings.json (see workspace-db.ts). On first
+  // launch a "Default" workspace is seeded so the UI always has a row
+  // to render.
+
+  ipcMain.handle('workspace:list', (): Workspace[] => listWorkspaces());
+
+  ipcMain.handle('workspace:active', (): Workspace | null => getActiveWorkspace());
+
+  ipcMain.handle(
+    'workspace:create',
+    (_e, input: WorkspaceInput): Workspace => createWorkspace(input),
+  );
+
+  ipcMain.handle(
+    'workspace:update',
+    (_e, payload: { id: string; patch: Partial<WorkspaceInput> }): Workspace | null =>
+      updateWorkspace(payload.id, payload.patch),
+  );
+
+  ipcMain.handle(
+    'workspace:switch',
+    (_e, id: string): Workspace | null => switchWorkspace(id),
+  );
+
+  ipcMain.handle('workspace:delete', (_e, id: string): boolean => deleteWorkspace(id));
 
   // ─── MCP marketplace ──────────────────────────────────────────────────
   // Renderer asks main to fetch from the public registry (renderer can't
@@ -787,4 +1159,9 @@ app.whenReady().then(() => {
 
 app.on('window-all-closed', () => {
   if (process.platform !== 'darwin') app.quit();
+});
+
+app.on('before-quit', () => {
+  // Flush WAL + release the file handle so the next launch sees a clean db.
+  closeDb();
 });

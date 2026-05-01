@@ -25,7 +25,7 @@ import {
   type McpServerConfig,
   type SDKMessage,
 } from '@anthropic-ai/claude-agent-sdk';
-import type { Guardrails, Permissions } from '@flowstate/core';
+import type { Budget, Guardrails, Permissions } from '@flowstate/core';
 
 export interface RuntimeRunRequest {
   runId: string;
@@ -49,6 +49,8 @@ export interface RuntimeRunRequest {
   bashAllowPatterns?: string[];
   /** MCP servers (agent's mcp:* refs → SDK mcpServers config). */
   mcpServers?: Record<string, McpServerConfig>;
+  /** Hard caps. Runtime aborts the SDK iterator when any limit is exceeded. */
+  budget?: Budget;
 }
 
 export interface RuntimeEvent {
@@ -101,12 +103,30 @@ export async function runAgent(req: RuntimeRunRequest, emit: EventCallback): Pro
 
   emit({ runId: req.runId, type: 'started' });
 
+  // Internal AbortController so budget enforcement can also halt the run.
+  // Declared outside the try so the catch block can clean up its timer.
+  const internalAbort = new AbortController();
+  if (req.abortSignal) {
+    if (req.abortSignal.aborted) internalAbort.abort();
+    else req.abortSignal.addEventListener('abort', () => internalAbort.abort(), { once: true });
+  }
+
+  // Runtime-budget timer — fires once we exceed the wall-clock cap.
+  let budgetTimer: NodeJS.Timeout | null = null;
+  if (req.budget?.runtimeMs && req.budget.runtimeMs > 0) {
+    budgetTimer = setTimeout(() => {
+      console.warn(`[runtime] runtime budget hit (${req.budget?.runtimeMs}ms) — aborting`);
+      internalAbort.abort();
+    }, req.budget.runtimeMs);
+  }
+
   try {
     // Guardrails → SDK options. Agent-declared takes precedence over caller-supplied.
     const allowedTools = req.guardrails?.allowedTools ?? req.allowedTools;
     const disallowedTools = req.guardrails?.disallowedTools;
     const permissionMode = req.guardrails?.permissionMode;
     const maxTurns = req.guardrails?.maxTurns;
+    const effort = req.guardrails?.effort;
 
     const iter = query({
       prompt: req.prompt,
@@ -119,6 +139,8 @@ export async function runAgent(req: RuntimeRunRequest, emit: EventCallback): Pro
         maxTurns,
         systemPrompt: req.agentSystemPrompt,
         canUseTool: req.canUseTool,
+        // SDK reasoning-effort hint — accepts named level OR integer.
+        ...(effort != null ? { effort: effort as never } : {}),
         // mcpServers — only set when non-empty so the SDK doesn't enumerate
         // an empty map. The runtime's pool will keep a warm cache (Block A#2
         // follow-up); for now each query() call gets its own server set.
@@ -126,11 +148,11 @@ export async function runAgent(req: RuntimeRunRequest, emit: EventCallback): Pro
           req.mcpServers && Object.keys(req.mcpServers).length > 0
             ? req.mcpServers
             : undefined,
-        abortController: req.abortSignal
-          ? ({ signal: req.abortSignal } as unknown as AbortController)
-          : undefined,
+        abortController: { signal: internalAbort.signal } as unknown as AbortController,
       },
     });
+
+    let budgetTripped: string | null = null;
 
     for await (const message of iter as AsyncIterable<SDKMessage>) {
       const stepEvents = translateMessage(message, nextStepId);
@@ -142,6 +164,31 @@ export async function runAgent(req: RuntimeRunRequest, emit: EventCallback): Pro
         if (ev.costUsd) costUsd += ev.costUsd;
         emit({ runId: req.runId, type: 'step', step: ev });
       }
+
+      // Token + USD budget — checked after every message so we abort
+      // as soon as the most-recent usage report puts us over the line.
+      if (req.budget?.tokens && tokensIn + tokensOut >= req.budget.tokens) {
+        budgetTripped = `Token budget exceeded (${tokensIn + tokensOut} ≥ ${req.budget.tokens})`;
+      } else if (req.budget?.usd && costUsd >= req.budget.usd) {
+        budgetTripped = `USD budget exceeded ($${costUsd.toFixed(4)} ≥ $${req.budget.usd})`;
+      }
+      if (budgetTripped) {
+        console.warn(`[runtime] ${budgetTripped} — aborting`);
+        internalAbort.abort();
+        break;
+      }
+    }
+
+    if (budgetTimer) clearTimeout(budgetTimer);
+
+    if (budgetTripped) {
+      emit({
+        runId: req.runId,
+        type: 'failed',
+        error: budgetTripped,
+        totals: { tokensIn, tokensOut, costUsd, durationMs: Date.now() - startedAt },
+      });
+      return;
     }
 
     emit({
@@ -150,6 +197,7 @@ export async function runAgent(req: RuntimeRunRequest, emit: EventCallback): Pro
       totals: { tokensIn, tokensOut, costUsd, durationMs: Date.now() - startedAt },
     });
   } catch (err) {
+    if (budgetTimer) clearTimeout(budgetTimer);
     emit({
       runId: req.runId,
       type: 'failed',

@@ -25,6 +25,13 @@ interface StartOpts {
   agentSystemPrompt?: string;
   allowedTools?: string[];
   model?: string;
+  /**
+   * Agent's `tools:` declarations (e.g. `mcp:github`, `cli:gh.pr.create`).
+   * Main resolves these server-side: MCP servers are built from the
+   * installed registry with decrypted secrets injected, and `cli:*` refs
+   * become a bash allowlist. The renderer never handles decrypted secrets.
+   */
+  agentTools?: string[];
   /** Agent's declared permissions — enforced inside canUseTool in main. */
   permissions?: {
     network?: string[];
@@ -40,22 +47,12 @@ interface StartOpts {
     disallowedTools?: string[];
     effort?: 'low' | 'medium' | 'high' | 'xhigh' | 'max' | number;
   };
-  /**
-   * Bash command patterns the gate will allow (regex sources).
-   * Generated from the agent's cli:* tool refs via resolveCliTools().
-   */
-  bashAllowPatterns?: string[];
-  /**
-   * MCP servers — agent's `mcp:*` refs translated to SDK's mcpServers map.
-   * The SDK starts each one on first use and exposes its tools as
-   * `mcp__<server>__<action>`. Threaded through IPC to query() options.
-   */
-  mcpServers?: Record<
-    string,
-    | { type?: 'stdio'; command: string; args?: string[]; env?: Record<string, string> }
-    | { type: 'http'; url: string; headers?: Record<string, string> }
-    | { type: 'sse'; url: string; headers?: Record<string, string> }
-  >;
+  /** Hard caps — main aborts the SDK iterator when any limit is exceeded. */
+  budget?: {
+    tokens?: number;
+    usd?: number;
+    runtimeMs?: number;
+  };
 }
 
 export function startSdkRun(opts: StartOpts): Run {
@@ -159,10 +156,10 @@ export function startSdkRun(opts: StartOpts): Run {
       agentSystemPrompt: opts.agentSystemPrompt,
       allowedTools: opts.allowedTools,
       model: opts.model,
+      agentTools: opts.agentTools,
       permissions: opts.permissions,
       guardrails: opts.guardrails,
-      bashAllowPatterns: opts.bashAllowPatterns,
-      mcpServers: opts.mcpServers,
+      budget: opts.budget,
     })
     .catch((err) => {
       console.warn('[sdk-runner] SDK invocation failed, falling back to mock', err);

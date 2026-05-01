@@ -4,6 +4,8 @@ import type {
   MarketplaceSourceId,
   McpServerDef,
   Settings,
+  Workspace,
+  WorkspaceInput,
 } from '@flowstate/core';
 
 export type PlatformInfo = {
@@ -21,6 +23,13 @@ export interface RunRequest {
   allowedTools?: string[];
   cwd?: string;
   model?: string;
+  /**
+   * Agent's declared tool refs (`mcp:*`, `cli:*`). Main resolves these
+   * server-side: builds the SDK mcpServers map (decrypting env vars from
+   * the keychain) + the bash allowlist. The renderer never sees decrypted
+   * secrets.
+   */
+  agentTools?: string[];
   /** Declared agent permissions — runtime enforces in canUseTool. */
   permissions?: {
     network?: string[];
@@ -36,18 +45,22 @@ export interface RunRequest {
     disallowedTools?: string[];
     effort?: 'low' | 'medium' | 'high' | 'xhigh' | 'max' | number;
   };
-  /** Bash command patterns the gate allows. Generated from cli:* refs. */
-  bashAllowPatterns?: string[];
-  /**
-   * MCP server config map. Keys are server ids; values are SDK-shaped
-   * stdio/http/sse configs. Passed straight through to query() options.
-   */
-  mcpServers?: Record<
-    string,
-    | { type?: 'stdio'; command: string; args?: string[]; env?: Record<string, string> }
-    | { type: 'http'; url: string; headers?: Record<string, string> }
-    | { type: 'sse'; url: string; headers?: Record<string, string> }
-  >;
+  /** Hard caps. Runtime aborts when any limit is exceeded. */
+  budget?: {
+    tokens?: number;
+    usd?: number;
+    runtimeMs?: number;
+  };
+}
+
+/** Self-test result — surfaces auth + SDK reachability to the Settings UI. */
+export interface SelfTestResult {
+  ok: boolean;
+  message: string;
+  apiKeySource?: 'keychain' | 'env' | 'none';
+  tokensIn?: number;
+  tokensOut?: number;
+  durationMs?: number;
 }
 
 export interface AgentEvent {
@@ -121,6 +134,76 @@ const flowstateApi = {
   /** Resolve a pending approval. The SDK's canUseTool Promise resolves here. */
   respondToApproval: (payload: ApprovalResponse): Promise<boolean> =>
     ipcRenderer.invoke('agent:approval-response', payload),
+
+  /**
+   * Smoke-test the SDK end-to-end. Sends a one-token prompt with no tools
+   * to verify that auth resolves and the SDK is reachable. Used by the
+   * Settings → Test connection button.
+   */
+  agentSelfTest: (): Promise<SelfTestResult> => ipcRenderer.invoke('agent:selftest'),
+
+  // ─── Conductor (intelligent composer) ────────────────────────────────
+  // The Conductor is one long-lived `query()` per window. Renderer pushes
+  // user turns via send() and subscribes to event / approval / user-input
+  // streams to render the chat.
+
+  conductorStart: (): Promise<{ ok: true }> =>
+    ipcRenderer.invoke('conductor:start'),
+
+  conductorSend: (text: string): Promise<{ turnId: string }> =>
+    ipcRenderer.invoke('conductor:send', { text }),
+
+  conductorInterrupt: (): Promise<boolean> =>
+    ipcRenderer.invoke('conductor:interrupt'),
+
+  conductorSetPermissionMode: (
+    mode: 'default' | 'acceptEdits' | 'plan' | 'bypassPermissions',
+  ): Promise<boolean> =>
+    ipcRenderer.invoke('conductor:set-permission-mode', mode),
+
+  /** Subscribe to the Conductor's streaming events. Returns unsubscribe. */
+  onConductorEvent: (cb: (ev: unknown) => void): (() => void) => {
+    const handler = (_e: IpcRendererEvent, ev: unknown) => cb(ev);
+    ipcRenderer.on('conductor:event', handler);
+    return () => ipcRenderer.off('conductor:event', handler);
+  },
+
+  /** Subscribe to destructive-tool approval requests from the Conductor. */
+  onConductorApprovalRequest: (
+    cb: (req: { id: string; toolName: string; input: Record<string, unknown> }) => void,
+  ): (() => void) => {
+    const handler = (
+      _e: IpcRendererEvent,
+      req: { id: string; toolName: string; input: Record<string, unknown> },
+    ) => cb(req);
+    ipcRenderer.on('conductor:approval-request', handler);
+    return () => ipcRenderer.off('conductor:approval-request', handler);
+  },
+
+  conductorRespondApproval: (
+    payload: { id: string; approved: boolean; reason?: string },
+  ): Promise<boolean> => ipcRenderer.invoke('conductor:approval-response', payload),
+
+  /** Subscribe to free-form ask_user / set_secret prompt cards. */
+  onConductorUserInputRequest: (
+    cb: (req: {
+      id: string;
+      question: string;
+      placeholder?: string;
+      secret?: boolean;
+    }) => void,
+  ): (() => void) => {
+    const handler = (
+      _e: IpcRendererEvent,
+      req: { id: string; question: string; placeholder?: string; secret?: boolean },
+    ) => cb(req);
+    ipcRenderer.on('conductor:user-input-request', handler);
+    return () => ipcRenderer.off('conductor:user-input-request', handler);
+  },
+
+  conductorRespondUserInput: (
+    payload: { id: string; answer?: string; cancelled?: boolean },
+  ): Promise<boolean> => ipcRenderer.invoke('conductor:user-input-response', payload),
 
   // ─── Agent file persistence ───────────────────────────────────────────
 
@@ -270,6 +353,33 @@ const flowstateApi = {
 
   /** OS this main process is running on — drives platform-specific install steps. */
   platformId: (): NodeJS.Platform => process.platform,
+
+  // ─── Workspaces (SQLite-backed) ───────────────────────────────────────
+  // Backed by flowstate.db (better-sqlite3) in the main process. The
+  // renderer never touches the DB directly — every call round-trips
+  // through IPC so we keep the single-writer guarantee.
+
+  /** Every workspace, most-recently-opened first. */
+  workspaceList: (): Promise<Workspace[]> => ipcRenderer.invoke('workspace:list'),
+
+  /** The currently active workspace, or null if the DB hasn't seeded yet. */
+  workspaceActive: (): Promise<Workspace | null> => ipcRenderer.invoke('workspace:active'),
+
+  /** Create a new workspace. Returns the persisted row (with id + timestamps). */
+  workspaceCreate: (input: WorkspaceInput): Promise<Workspace> =>
+    ipcRenderer.invoke('workspace:create', input),
+
+  /** Patch any subset of fields. Omitted fields stay as-is. */
+  workspaceUpdate: (id: string, patch: Partial<WorkspaceInput>): Promise<Workspace | null> =>
+    ipcRenderer.invoke('workspace:update', { id, patch }),
+
+  /** Mark a workspace active + bump its lastOpenedAt. */
+  workspaceSwitch: (id: string): Promise<Workspace | null> =>
+    ipcRenderer.invoke('workspace:switch', id),
+
+  /** Delete a workspace. Throws if it's the only one. */
+  workspaceDelete: (id: string): Promise<boolean> =>
+    ipcRenderer.invoke('workspace:delete', id),
 };
 
 contextBridge.exposeInMainWorld('flowstate', flowstateApi);

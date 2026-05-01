@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import { useCallback, useEffect, useState } from 'react';
 import { motion } from 'motion/react';
 import {
   KeyRound,
@@ -119,6 +119,73 @@ function AccountSection() {
       },
     });
 
+  // ─── API key local state ───────────────────────────────────────────────
+  // The renderer NEVER reads the value back — only checks the keychain
+  // for whether the name is set, drives a green dot. Editing always means
+  // typing the key fresh, then Save → secrets:set. Forgetting calls
+  // secrets:delete.
+  const [apiKeyDraft, setApiKeyDraft] = useState('');
+  const [apiKeyStored, setApiKeyStored] = useState<boolean | null>(null);
+  const [apiKeyBusy, setApiKeyBusy] = useState(false);
+
+  // ─── Self-test state ───────────────────────────────────────────────────
+  const [testing, setTesting] = useState(false);
+  const [testResult, setTestResult] = useState<{
+    ok: boolean;
+    message: string;
+    apiKeySource?: string;
+    durationMs?: number;
+    tokensIn?: number;
+    tokensOut?: number;
+  } | null>(null);
+
+  // Refresh the keychain dot on mount and after each save/forget.
+  const refreshKeyStatus = useCallback(async () => {
+    const names = await window.flowstate.secretsList();
+    setApiKeyStored(names.includes('ANTHROPIC_API_KEY'));
+  }, []);
+  useEffect(() => {
+    void refreshKeyStatus();
+  }, [refreshKeyStatus]);
+
+  const handleSaveKey = async () => {
+    if (!apiKeyDraft.trim()) return;
+    setApiKeyBusy(true);
+    try {
+      await window.flowstate.secretsSet('ANTHROPIC_API_KEY', apiKeyDraft.trim());
+      setApiKeyDraft('');
+      await refreshKeyStatus();
+    } finally {
+      setApiKeyBusy(false);
+    }
+  };
+
+  const handleForgetKey = async () => {
+    setApiKeyBusy(true);
+    try {
+      await window.flowstate.secretsDelete('ANTHROPIC_API_KEY');
+      await refreshKeyStatus();
+    } finally {
+      setApiKeyBusy(false);
+    }
+  };
+
+  const handleSelfTest = async () => {
+    setTesting(true);
+    setTestResult(null);
+    try {
+      const r = await window.flowstate.agentSelfTest();
+      setTestResult(r);
+    } catch (err) {
+      setTestResult({
+        ok: false,
+        message: err instanceof Error ? err.message : String(err),
+      });
+    } finally {
+      setTesting(false);
+    }
+  };
+
   return (
     <Section
       title="Account & model"
@@ -151,8 +218,47 @@ function AccountSection() {
       </Field>
 
       {provider === 'api' && (
-        <Field label="ANTHROPIC_API_KEY" hint="Stored in your OS keychain — never written to disk in plaintext.">
-          <TextInput placeholder="sk-ant-…" type="password" />
+        <Field
+          label="ANTHROPIC_API_KEY"
+          hint={
+            apiKeyStored
+              ? 'A key is stored in the OS keychain. Type a new value to replace it, or Forget to remove.'
+              : 'Stored in your OS keychain — never written to disk in plaintext.'
+          }
+        >
+          <div className="flex flex-col gap-2">
+            <div className="flex items-center gap-2">
+              <TextInput
+                placeholder={apiKeyStored ? '••••••••••••••••' : 'sk-ant-…'}
+                type="password"
+                value={apiKeyDraft}
+                onChange={(e) => setApiKeyDraft(e.target.value)}
+              />
+              <Button
+                size="sm"
+                onClick={handleSaveKey}
+                disabled={apiKeyBusy || !apiKeyDraft.trim()}
+              >
+                {apiKeyBusy ? 'Saving…' : 'Save'}
+              </Button>
+              {apiKeyStored && (
+                <Button
+                  variant="outline"
+                  size="sm"
+                  onClick={handleForgetKey}
+                  disabled={apiKeyBusy}
+                >
+                  Forget
+                </Button>
+              )}
+            </div>
+            {apiKeyStored && (
+              <span className="flex items-center gap-1.5 text-2xs text-ok">
+                <Check size={10} strokeWidth={2.4} />
+                Key stored in keychain
+              </span>
+            )}
+          </div>
         </Field>
       )}
 
@@ -184,13 +290,50 @@ function AccountSection() {
         </Field>
       )}
 
-      <Field label="Connection status">
-        <div className="flex items-center gap-2 rounded-md border border-stone bg-paper-sunken px-3 py-2">
-          <span className="h-1.5 w-1.5 rounded-full bg-ok animate-pulse-blue" />
-          <span className="text-sm text-ink">Connected · Claude subscription</span>
-          <span className="ml-auto font-mono text-2xs uppercase tracking-code text-ink-subtle">
-            verified 2 min ago
-          </span>
+      <Field
+        label="Connection status"
+        hint="Sends a one-token prompt with no tools to verify the SDK can reach Anthropic with your current auth."
+      >
+        <div className="flex flex-col gap-2">
+          <div className="flex items-center gap-2">
+            <Button
+              variant="outline"
+              size="sm"
+              onClick={handleSelfTest}
+              disabled={testing}
+            >
+              {testing ? 'Testing…' : 'Test connection'}
+            </Button>
+            {testResult && (
+              <span
+                className={cn(
+                  'inline-flex items-center gap-1.5 text-2xs font-mono uppercase tracking-code',
+                  testResult.ok ? 'text-ok' : 'text-err',
+                )}
+              >
+                <span
+                  className={cn(
+                    'h-1.5 w-1.5 rounded-full',
+                    testResult.ok ? 'bg-ok' : 'bg-err',
+                  )}
+                />
+                {testResult.ok ? 'connected' : 'failed'}
+                {testResult.apiKeySource && ` · auth: ${testResult.apiKeySource}`}
+                {testResult.durationMs != null &&
+                  ` · ${(testResult.durationMs / 1000).toFixed(1)}s`}
+              </span>
+            )}
+          </div>
+          {testResult && !testResult.ok && (
+            <div className="rounded-md border border-err/40 bg-err/10 px-3 py-2 text-xs text-ink-muted">
+              {testResult.message}
+            </div>
+          )}
+          {testResult?.ok && testResult.tokensIn != null && (
+            <div className="font-mono text-2xs text-ink-subtle">
+              {testResult.tokensIn} in · {testResult.tokensOut} out
+            </div>
+          )}
         </div>
       </Field>
     </Section>
