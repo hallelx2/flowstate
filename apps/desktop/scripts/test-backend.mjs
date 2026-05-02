@@ -126,33 +126,39 @@ section('resolveMcpServers');
 }
 
 // ─── 4. Live SDK call (opt-in) ─────────────────────────────────────────────
+// The SDK resolves auth in this order:
+//   1. CLAUDE_CODE_OAUTH_TOKEN env var
+//   2. ANTHROPIC_API_KEY env var
+//   3. ~/.claude/* on-disk credentials (claude login, Claude Code subscription)
+//
+// We let the SDK try regardless of env state — failure surfaces as an
+// error in the SDK's own message stream, which is the cleanest signal.
 if (process.env.TEST_LIVE === '1') {
   section('SDK live call');
 
-  if (!process.env.ANTHROPIC_API_KEY && !process.env.CLAUDE_CODE_OAUTH_TOKEN) {
-    console.log('  ! skipped — set ANTHROPIC_API_KEY or CLAUDE_CODE_OAUTH_TOKEN');
-  } else {
-    let saw = 0;
-    let lastError;
-    try {
-      const iter = query({
-        prompt: 'Reply with the single word "ok".',
-        options: {
-          maxTurns: 1,
-          allowedTools: [],
-          disallowedTools: ['Bash', 'Write', 'Edit', 'Read'],
-        },
-      });
-      for await (const msg of iter) {
-        saw++;
-        if (msg.type === 'result' && 'is_error' in msg && msg.is_error) {
-          lastError = JSON.stringify(msg).slice(0, 200);
-        }
+  let saw = 0;
+  let lastError;
+  try {
+    const iter = query({
+      prompt: 'Reply with the single word "ok".',
+      options: {
+        maxTurns: 1,
+        allowedTools: [],
+        disallowedTools: ['Bash', 'Write', 'Edit', 'Read'],
+      },
+    });
+    for await (const msg of iter) {
+      saw++;
+      if (msg.type === 'result' && msg.is_error) {
+        lastError = msg.subtype ?? JSON.stringify(msg).slice(0, 200);
       }
-    } catch (err) {
-      lastError = err instanceof Error ? err.message : String(err);
     }
-    check(`SDK streamed ≥ 1 message`, saw >= 1, lastError ?? '');
+  } catch (err) {
+    lastError = err instanceof Error ? err.message : String(err);
+  }
+  check(`SDK streamed ≥ 1 message`, saw >= 1, lastError ?? '');
+  if (lastError) {
+    console.log(`  · last error: ${lastError}`);
   }
 } else {
   console.log('\n→ SDK live call (skipped — set TEST_LIVE=1 to run)');
