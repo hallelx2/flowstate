@@ -18,6 +18,13 @@ export type PlatformInfo = {
 
 export interface RunRequest {
   runId: string;
+  /**
+   * The agent's frontmatter id — null for ad-hoc runs (one-off prompts
+   * with no saved agent backing them). Used for run history attribution.
+   */
+  agentId?: string | null;
+  /** Display name — snapshotted on the run row so renames don't lose history. */
+  agentName?: string;
   prompt: string;
   agentSystemPrompt?: string;
   allowedTools?: string[];

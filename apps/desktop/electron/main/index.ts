@@ -41,6 +41,7 @@ import {
 } from './conductor/runtime';
 import { listThreads, deleteThread, setActiveThread } from './conductor/sessions';
 import { runStoreMain } from './run-registry';
+import { closeAll as closeAllJournals } from './run-journal';
 import {
   closeDb,
   createWorkspace,
@@ -309,6 +310,20 @@ app.whenReady().then(() => {
     const controller = new AbortController();
     inFlight.set(req.runId, controller);
 
+    // Persist the run start: SQL row + JSONL journal opened. The renderer
+    // already has the run in its in-memory store; this gives it a durable
+    // shadow that survives restarts and feeds Conductor list_runs / M4
+    // analytics. agentId may be null for ad-hoc runs (e.g. one-off prompts
+    // from the home composer with no saved agent backing them).
+    const activeWorkspace = getActiveWorkspace();
+    runStoreMain.register({
+      id: req.runId,
+      agentId: req.agentId ?? '_renderer',
+      agentName: req.agentName ?? 'Unnamed run',
+      abortController: controller,
+      workspaceId: activeWorkspace?.id ?? null,
+    });
+
     // Inject the user's stored API key into env BEFORE the SDK reads it.
     // The SDK's auth resolution order checks ANTHROPIC_API_KEY first, so
     // this lets the keychain take precedence over whatever was inherited
@@ -395,6 +410,9 @@ app.whenReady().then(() => {
         canUseTool,
       };
       await runAgent(runtimeReq, (ev) => {
+        // Persist first, forward second — same ordering as the conductor
+        // bridge so the JSONL journal is the source of truth on crash.
+        runStoreMain.recordEvent(req.runId, ev);
         event.sender.send('agent:event', ev);
       });
     } finally {
@@ -585,10 +603,9 @@ app.whenReady().then(() => {
           // Mirror to the regular agent:event stream so the existing
           // sdk-runner / runStore wiring picks it up unchanged.
           event.sender.send('agent:event', ev);
-          const e = ev as { type?: string };
-          if (e.type === 'started') runStoreMain.setStatus(runId, 'running');
-          else if (e.type === 'completed') runStoreMain.setStatus(runId, 'completed');
-          else if (e.type === 'failed') runStoreMain.setStatus(runId, 'failed');
+          // Persist the event: JSONL journal + SQL run_steps + status/totals.
+          // Single entrypoint replaces the old setStatus chain.
+          runStoreMain.recordEvent(runId, ev as Parameters<typeof runStoreMain.recordEvent>[1]);
         },
       };
 
@@ -1162,6 +1179,9 @@ app.on('window-all-closed', () => {
 });
 
 app.on('before-quit', () => {
-  // Flush WAL + release the file handle so the next launch sees a clean db.
+  // Close every per-run JSONL handle before SQLite — the journal is the
+  // source of truth on crash, so we want it durable on disk first. Then
+  // flush WAL + release the db handle so the next launch sees a clean db.
+  closeAllJournals();
   closeDb();
 });

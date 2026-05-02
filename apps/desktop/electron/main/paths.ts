@@ -76,3 +76,11 @@ export function conductorArchiveDir(): string {
   }
   return join(app.getPath('userData'), 'conductor-archive');
 }
+
+/** Per-run JSONL journals — one file per run, append-only. */
+export function runJournalsDir(): string {
+  if (isDev) {
+    return resolve(__dirname, '..', '..', '..', '..', '.flowstate', 'runs');
+  }
+  return join(app.getPath('userData'), 'runs');
+}

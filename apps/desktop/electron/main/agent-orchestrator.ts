@@ -180,6 +180,13 @@ export function bashAllowPatternsFromTools(agentTools: string[]): string[] {
  */
 export interface RunAgentRequest {
   runId: string;
+  /**
+   * The agent's frontmatter id, or null for ad-hoc renderer-driven runs
+   * with no saved agent backing them. Used for run history attribution.
+   */
+  agentId?: string | null;
+  /** Display name — snapshotted onto the run row so renames don't lose history. */
+  agentName?: string;
   prompt: string;
   agentSystemPrompt?: string;
   cwd?: string;

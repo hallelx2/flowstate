@@ -152,6 +152,8 @@ export function startSdkRun(opts: StartOpts): Run {
   void window.flowstate
     .runAgent({
       runId: run.id,
+      agentId: opts.agentId,
+      agentName: opts.agentName,
       prompt: opts.prompt,
       agentSystemPrompt: opts.agentSystemPrompt,
       allowedTools: opts.allowedTools,
