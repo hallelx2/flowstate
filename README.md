@@ -101,10 +101,19 @@ pnpm --filter @flowstate/desktop make    # package as platform installer
 | CLI tool registry + bash regex gate | ✅ shipped | 15 starter commands across `gh` / `git` / `gcloud` / `stripe` / `kubectl` |
 | In-app create / edit / save agent files | ✅ working | Form modal + CodeMirror edit + IPC writeAgentFile |
 | Run history with React Flow visualization | ✅ working | Per-run trace with status colors + live ticker |
-| MCP server pool + lifecycle | ⏳ next | Block A #1 — `mcp:*` refs → SDK MCP server config |
-| Settings + run history persistence to disk | ⏳ next | Block B — survive restarts |
-| Webhook / cron / watch trigger listeners | ⏳ next | Block C — turn agents into daemons |
-| `flowstate add github:publisher/agent` install | ⏳ next | Block D — marketplace |
+| MCP server pool + lifecycle | ✅ shipped | `mcp:*` refs resolve via `resolveMcpServers` → SDK MCP server config; system prompt advertises tools |
+| MCP marketplace (search / install / uninstall) | ✅ shipped | Official + Glama registries, 6h cache, secrets in OS keychain |
+| CLI marketplace (detect / install / authenticate) | ✅ shipped | 15-brand catalog with install + auth metadata, OS-shell launcher |
+| Settings persistence to disk | ✅ shipped | `~/.flowstate/settings.json`, atomic write, Zod-validated read |
+| SQLite-backed workspaces + title-bar switcher | ✅ shipped | Multi-workspace via `flowstate.db` (WAL); `agents_dir` / `runs_dir` / `tools_dir` per workspace |
+| Conductor — intent-routing orchestrator | ✅ shipped | Home composer talks to a router agent that delegates to planner / installer / authenticator / agent-writer sub-agents |
+| Home composer chat UI | ✅ shipped | Conductor thread, prompt cards, toasts |
+| shadcn/ui primitives mapped onto Cohere tokens | ✅ shipped | `<Button>` ported across `btn-ghost` / `btn-dark` / `btn-outline` call sites |
+| Per-run JSONL journals + SQLite run store | ⏳ M1 | Replace in-memory 100-run cap with durable storage |
+| `~/.flowstate/agents/` live-reload watcher | ⏳ M1 | chokidar → IPC `agents:changed` |
+| Webhook / cron / watch trigger listeners | ⏳ M2 | Turn agents into daemons; `manual` works today, the other four don't |
+| `flowstate add github:publisher/agent` install | ⏳ M3 | Agent-side of the marketplace; MCP + CLI sides are already shipped |
+| Run analytics (latency / cost / failure-rate / diff) | ⏳ M4 | Depends on M1's run store |
 
 ---
 
@@ -235,42 +244,60 @@ The starter registry in [`packages/core/src/cli-tools.ts`](packages/core/src/cli
 ```
 flow-state/
 ├── apps/
-│   └── desktop/                    Electron 33 + React 18 + Vite 5 + Tailwind 4
+│   └── desktop/                       Electron 33 + React 18 + Vite 5 + Tailwind 4
 │       ├── electron/
-│       │   ├── main/index.ts       Window, IPC, agent runtime + permission gate wiring
-│       │   ├── main/agent-runtime  Claude Agent SDK query() wrapper
-│       │   └── preload/index.ts    Typed window.flowstate bridge
+│       │   ├── main/index.ts          Window, IPC, agent runtime + permission gate wiring
+│       │   ├── main/agent-runtime.ts  Claude Agent SDK query() wrapper
+│       │   ├── main/agent-orchestrator.ts   Drives a single AgentRun lifecycle
+│       │   ├── main/run-registry.ts   In-memory run store (M1 swaps for SQLite)
+│       │   ├── main/workspace-db.ts   better-sqlite3 — workspaces + app_state tables
+│       │   ├── main/paths.ts          ~/.flowstate path resolution (prod + dev)
+│       │   ├── main/conductor/        Intent-routing orchestrator over the SDK
+│       │   │   ├── runtime.ts         query() loop, tool dispatch, redaction
+│       │   │   ├── server.ts          IPC server for conductor sessions
+│       │   │   ├── sessions.ts        Per-thread session state
+│       │   │   ├── system-prompt.ts   Router system prompt
+│       │   │   ├── tools.ts           Built-in tools the router can call
+│       │   │   ├── hooks.ts           Lifecycle hooks
+│       │   │   ├── redaction.ts       Secret scrubbing on transcripts
+│       │   │   └── subagents/         planner · installer · authenticator · agent-writer
+│       │   └── preload/index.ts       Typed window.flowstate bridge
 │       ├── src/
-│       │   ├── App.tsx             Boot → Shell → view router
-│       │   ├── agents/             Bundled example agents (.md + .yaml + nested folders)
+│       │   ├── App.tsx                Boot → Shell → view router
+│       │   ├── agents/                Bundled example agents (.md + .yaml + nested folders)
 │       │   ├── lib/
-│       │   │   ├── agent-prompt.ts assembleSystemPrompt + bashAllowPatternsFor
-│       │   │   ├── sdk-runner.ts   Renderer → IPC adapter (with mock fallback)
-│       │   │   ├── mock-runner.ts  Realistic-trace generator for offline demo
-│       │   │   └── run-store.ts    useSyncExternalStore + HITL approvals
+│       │   │   ├── agent-prompt.ts    assembleSystemPrompt + bashAllowPatternsFor
+│       │   │   ├── sdk-runner.ts      Renderer → IPC adapter (with mock fallback)
+│       │   │   ├── mock-runner.ts     Realistic-trace generator for offline demo
+│       │   │   └── run-store.ts       useSyncExternalStore + HITL approvals
 │       │   ├── components/
-│       │   │   ├── splash/         Loading screen with purple hero band
-│       │   │   ├── shell/          Title bar + left rail nav
-│       │   │   ├── home/           Conversation entry surface
-│       │   │   ├── agents/         Directory + Inspector + Source + Edit + Create modal
-│       │   │   ├── tools/          Tool directory with brand SVGs
-│       │   │   ├── runs/           List + flow detail + approval banner
-│       │   │   ├── settings/       Provider + ModelPicker + workspace + privacy
-│       │   │   ├── prose/          Markdown renderer + CodeMirror editor + Prism highlighting
-│       │   │   └── brand/          FlowstateMark + ClaudeMark
-│       │   └── styles/globals.css  Cohere design tokens (CSS-first @theme)
-│       └── DESIGN.md               ← from `npx getdesign add cohere`
+│       │   │   ├── splash/            Loading screen with purple hero band
+│       │   │   ├── shell/             Title bar + workspace switcher + left rail nav
+│       │   │   ├── home/              Conductor composer + thread + prompt cards
+│       │   │   ├── agents/            Directory + Inspector + Source + Edit + Create modal
+│       │   │   ├── tools/             Tool directory + MCP marketplace + CLI marketplace
+│       │   │   ├── runs/              List + flow detail + approval banner
+│       │   │   ├── settings/          Provider + ModelPicker + workspace + privacy
+│       │   │   ├── prose/             Markdown renderer + CodeMirror editor + Prism
+│       │   │   ├── ui/                shadcn/ui primitives (Button, etc.) on Cohere tokens
+│       │   │   └── brand/             FlowstateMark + ClaudeMark
+│       │   └── styles/globals.css     Cohere design tokens + shadcn semantic vars
+│       └── DESIGN.md                  ← from `npx getdesign add cohere` + shadcn mapping
 ├── packages/
-│   └── core/                       Shared spec + IR
+│   └── core/                          Shared spec + IR
 │       └── src/
-│           ├── schema.ts           Zod schemas — Agent v1.0 + Trigger + Permissions + Guardrails
-│           ├── types/              Agent · ToolManifest · AgentRun · RunStep
-│           ├── loader.ts           parseAgentMarkdown / parseAgentYaml / FileRegistry
-│           ├── capabilities.ts     ~80-tag controlled vocabulary across 14 domains
-│           ├── tool-adapter.ts     ToolAdapter interface + per-kind configs
-│           ├── resolver.ts         resolveCapabilities + checkPermissions
-│           └── cli-tools.ts        CliToolDef + STARTER_CLI_TOOLS + resolveCliTools
-├── SPEC.md                         The canonical agent + tool + guardrails contract
+│           ├── schema.ts              Zod schemas — Agent v1.0 + Trigger + Permissions + Guardrails
+│           ├── types/                 Agent · ToolManifest · AgentRun · RunStep · Workspace
+│           ├── loader.ts              parseAgentMarkdown / parseAgentYaml / FileRegistry
+│           ├── capabilities.ts        ~80-tag controlled vocabulary across 14 domains
+│           ├── tool-adapter.ts        ToolAdapter interface + per-kind configs
+│           ├── resolver.ts            resolveCapabilities + checkPermissions
+│           ├── settings.ts            Settings schema + atomic read/write helpers
+│           ├── cli-tools.ts           CliToolDef + STARTER_CLI_TOOLS + resolveCliTools
+│           ├── cli-catalog.ts         CLI tool family catalog (15 brands, install + auth metadata)
+│           ├── mcp-servers.ts         MCP server registry + resolveMcpServers
+│           └── mcp-marketplace.ts     Official + Glama registry fetch / normalize / cache
+├── SPEC.md                            The canonical agent + tool + guardrails contract
 ├── pnpm-workspace.yaml
 └── tsconfig.base.json
 ```
@@ -285,6 +312,7 @@ flow-state/
 | UI | React 18 + Vite 5 + TypeScript 5 (strict, `noUncheckedIndexedAccess`) | Fast HMR, strict types |
 | Styling | Tailwind 4 (CSS-first `@theme`) | 10× faster than v3, no PostCSS dance |
 | Design system | Cohere via `getdesign` | Pure white, Interaction Blue, 22px signature radius |
+| Component primitives | `radix-ui` + shadcn/ui (mapped onto Cohere tokens) | Accessible primitives, project-owned variants |
 | Fonts | Space Grotesk · Inter · JetBrains Mono | DESIGN.md-prescribed fallbacks |
 | Brand icons | `simple-icons` (3.4k brand SVGs) | Real brand assets, tree-shaken |
 | Flow viz | `@xyflow/react` (React Flow 12) | Customizable nodes, fast canvas |
@@ -294,23 +322,28 @@ flow-state/
 | Motion | `motion` (formerly framer-motion) | Spring physics, layout animation |
 | Schema | `zod` 4 | Runtime validation + TS type inference |
 | YAML | `yaml` (eemeli) | Spec-compliant, browser-safe |
+| Local persistence | `better-sqlite3` (WAL) | Sync API, native perf, zero server |
 | Agent runtime | `@anthropic-ai/claude-agent-sdk` | Claude Code subscription · API key · local LLM |
 
 ---
 
 ## Roadmap
 
-**Done** — agent IR, design system, six views, real SDK execution with mock fallback, file persistence, in-app create + edit + save, capability ontology v1, permission gate (network / fs / bash allowlist), HITL approvals (mock + real SDK), CLI tool registry + bash gate, spec v1.0, [SPEC.md](SPEC.md).
+**Done** — agent IR, design system, six views, real SDK execution with mock fallback, settings persistence, in-app create + edit + save, capability ontology v1, permission gate (network / fs / bash allowlist), HITL approvals (mock + real SDK), CLI tool registry + bash gate, spec v1.0, MCP server pool + lifecycle, MCP marketplace, CLI marketplace, SQLite-backed workspaces, Conductor intent-routing orchestrator, shadcn/ui primitives, [SPEC.md](SPEC.md).
 
-**Next** (in dependency order):
+**Path to v0.2** (in dependency order):
 
-1. **MCP server pool + lifecycle** — `mcp:*` refs translate to SDK MCP server config; pool keeps 10 most-recent warm
-2. **Disk persistence** — settings.json + per-run JSONL journals + watch user's agents directory
-3. **Triggers actually fire** — webhook listener + cron scheduler + filesystem watcher → spawn runs
-4. **Marketplace install** — `flowstate add github:publisher/agent` clones, validates v1.0, shows install screen, writes to `~/.flowstate/agents/`
-5. **Run analytics** — latency baselines, cost regression alerts, tool failure rates, diff viewer between runs
+**M1 — Finish persistence.** Replace the in-memory 100-run cap with `runs` + `run_steps` tables in `flowstate.db`, append-only JSONL journals at `~/.flowstate/runs/<run-id>.jsonl`, and a chokidar watcher on `~/.flowstate/agents/` that pushes `agents:changed` to the renderer for live reload.
 
-**Beyond** — multi-machine federation (control plane + runners), self-improving agents (every failure becomes a PR to its own `.md`), sub-agent orchestration via the SDK's AgentDefinition.
+**M2 — Triggers fire.** New `electron/main/triggers/` module with `webhook.ts` (Fastify), `cron.ts` (node-cron + persisted catch-up), `watch.ts` (chokidar). Trigger registry hooks into agent save/delete; on app boot, hydrate all triggers from disk. `manual` already works; `event` ships as a stub for cross-agent events later.
+
+**M3 — Agent marketplace.** `flowstate add github:publisher/agent` clones, validates against Spec v1.0, renders the SPEC.md §6 pre-install screen (permissions / capabilities / secrets / budget), writes to `~/.flowstate/agents/<publisher>/<id>/`. Third tab in the tools pane alongside MCP + CLI.
+
+**M4 — Run analytics.** Now that runs live on disk: latency baselines by tool, cost trend by day, failure-rate ranking, p50/p95 durations. Per-step tokens + costUsd surface on React Flow nodes. Run diff viewer for two runs of the same agent.
+
+**M5 — v0.2 release cut.** Bump versions, write CHANGELOG, refresh this table, drop the "wait for v0.2" license caveat, tag + GitHub release.
+
+**Beyond v0.2** — multi-machine federation (control plane + runners), self-improving agents (every failure becomes a PR to its own `.md`), sub-agent orchestration via the SDK's AgentDefinition (the Conductor proves the pattern internally — opening it up to user-authored sub-agents is the next step).
 
 ---
 
