@@ -42,6 +42,7 @@ import {
 import { listThreads, deleteThread, setActiveThread } from './conductor/sessions';
 import { runStoreMain } from './run-registry';
 import { closeAll as closeAllJournals } from './run-journal';
+import { startAgentsWatcher, stopAgentsWatcher } from './agents-watcher';
 import {
   closeDb,
   createWorkspace,
@@ -292,6 +293,11 @@ async function destroyConductor(wcId: number): Promise<void> {
 }
 
 app.whenReady().then(() => {
+  // ─── Filesystem watchers ──────────────────────────────────────────────
+  // Agents-dir watcher fires `agents:changed` events to every renderer
+  // window when files under ~/.flowstate/agents/ are touched. Idempotent.
+  startAgentsWatcher();
+
   // ─── System info ──────────────────────────────────────────────────────
   ipcMain.handle('flowstate:platform', () => ({
     platform: process.platform,
@@ -1182,6 +1188,8 @@ app.on('before-quit', () => {
   // Close every per-run JSONL handle before SQLite — the journal is the
   // source of truth on crash, so we want it durable on disk first. Then
   // flush WAL + release the db handle so the next launch sees a clean db.
+  // Watchers go last; they don't hold any non-recoverable state.
   closeAllJournals();
   closeDb();
+  void stopAgentsWatcher();
 });

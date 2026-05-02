@@ -112,6 +112,16 @@ export interface ApprovalResponse {
   message?: string;
 }
 
+/** Live-reload notification for the agents directory. */
+export interface AgentsChangedEvent {
+  /** Relative paths under the agents root that changed since the last fire. */
+  paths: string[];
+  /** Coarse classification of FS event kinds in this batch. */
+  kinds: Array<'add' | 'change' | 'unlink' | 'addDir' | 'unlinkDir'>;
+  /** ISO timestamp when the debounced fire ran. */
+  ts: string;
+}
+
 const flowstateApi = {
   platform: (): Promise<PlatformInfo> => ipcRenderer.invoke('flowstate:platform'),
 
@@ -141,6 +151,21 @@ const flowstateApi = {
   /** Resolve a pending approval. The SDK's canUseTool Promise resolves here. */
   respondToApproval: (payload: ApprovalResponse): Promise<boolean> =>
     ipcRenderer.invoke('agent:approval-response', payload),
+
+  /**
+   * Subscribe to agents-directory live-reload notifications. Fires when
+   * the user adds, edits, or deletes an agent file under the watched
+   * agents root. Returns an unsubscribe fn.
+   *
+   * The payload reports relative paths + event kinds since the last
+   * fire — the renderer can do a targeted reload rather than re-globbing
+   * the whole tree.
+   */
+  onAgentsChanged: (cb: (event: AgentsChangedEvent) => void): (() => void) => {
+    const handler = (_e: IpcRendererEvent, ev: AgentsChangedEvent) => cb(ev);
+    ipcRenderer.on('agents:changed', handler);
+    return () => ipcRenderer.off('agents:changed', handler);
+  },
 
   /**
    * Smoke-test the SDK end-to-end. Sends a one-token prompt with no tools
