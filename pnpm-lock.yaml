@@ -8,6 +8,9 @@ importers:
 
   .:
     devDependencies:
+      '@rollup/rollup-win32-x64-msvc':
+        specifier: ^4.60.2
+        version: 4.60.2
       prettier:
         specifier: ^3.3.3
         version: 3.8.3
@@ -5557,8 +5560,7 @@ snapshots:
   '@rollup/rollup-win32-x64-gnu@4.60.2':
     optional: true
 
-  '@rollup/rollup-win32-x64-msvc@4.60.2':
-    optional: true
+  '@rollup/rollup-win32-x64-msvc@4.60.2': {}
 
   '@sindresorhus/is@4.6.0': {}
 
