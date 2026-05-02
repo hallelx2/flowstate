@@ -1,5 +1,5 @@
 /**
- * SQLite-backed workspace store.
+ * SQLite-backed local store.
  *
  * One database file per install — `flowstate.db` next to settings.json.
  *   Dev:  <projectRoot>/.flowstate/flowstate.db
@@ -8,12 +8,18 @@
  * Tables:
  *   workspaces  — one row per workspace, columns mirror Workspace IR
  *   app_state   — k/v scalar state (currently just `active_workspace_id`)
+ *   runs        — one row per AgentRun (M1) — indexable summary of a run
+ *   run_steps   — one row per RunStep (M1) — ordered by `seq`, queryable by tool
  *
  * Why SQLite (vs more JSON files): we want a real relational target for
- * runs / tool-events / approvals later, and keeping every persistence
- * layer hand-rolled around fs.rename loses transactional guarantees the
- * moment two writers touch the same file. Starting with workspaces gives
- * us the schema + migration discipline before runs land.
+ * runs / tool-events / approvals, and keeping every persistence layer
+ * hand-rolled around fs.rename loses transactional guarantees the moment
+ * two writers touch the same file. The full per-run transcript still
+ * lands in JSONL on disk (`~/.flowstate/runs/<id>.jsonl`) for replay; the
+ * SQL tables are the indexable summary on top of that journal.
+ *
+ * This module owns the database lifecycle + workspace CRUD. Run CRUD
+ * lives in `run-store-db.ts` to keep this file focused.
  */
 
 import Database from 'better-sqlite3';
@@ -81,6 +87,64 @@ function initSchema(d: Database.Database): void {
       key   TEXT PRIMARY KEY,
       value TEXT NOT NULL
     );
+
+    -- M1: runs + run_steps. The full transcript lives in JSONL on disk
+    -- (journal_path); these tables index summary scalars so the renderer
+    -- and analytics queries don't have to re-parse the journal.
+    CREATE TABLE IF NOT EXISTS runs (
+      id              TEXT PRIMARY KEY,
+      agent_id        TEXT NOT NULL,
+      agent_name      TEXT NOT NULL,
+      workspace_id    TEXT REFERENCES workspaces(id) ON DELETE SET NULL,
+      status          TEXT NOT NULL,
+      trigger_kind    TEXT,
+      trigger_payload TEXT,
+      started_at      TEXT NOT NULL,
+      ended_at        TEXT,
+      tokens_in       INTEGER NOT NULL DEFAULT 0,
+      tokens_out      INTEGER NOT NULL DEFAULT 0,
+      cost_usd        REAL    NOT NULL DEFAULT 0,
+      duration_ms     INTEGER,
+      journal_path    TEXT
+    );
+
+    CREATE INDEX IF NOT EXISTS idx_runs_started_at
+      ON runs (started_at DESC);
+    CREATE INDEX IF NOT EXISTS idx_runs_agent
+      ON runs (agent_id, started_at DESC);
+    CREATE INDEX IF NOT EXISTS idx_runs_workspace
+      ON runs (workspace_id, started_at DESC);
+    CREATE INDEX IF NOT EXISTS idx_runs_status
+      ON runs (status);
+
+    CREATE TABLE IF NOT EXISTS run_steps (
+      id          TEXT PRIMARY KEY,
+      run_id      TEXT NOT NULL REFERENCES runs(id) ON DELETE CASCADE,
+      parent_id   TEXT,
+      seq         INTEGER NOT NULL,
+      kind        TEXT NOT NULL,
+      status      TEXT NOT NULL,
+      label       TEXT NOT NULL,
+      detail      TEXT,
+      tool_id     TEXT,
+      tool_action TEXT,
+      inputs_json TEXT,
+      output_json TEXT,
+      started_at  TEXT NOT NULL,
+      ended_at    TEXT,
+      tokens_in   INTEGER,
+      tokens_out  INTEGER,
+      cost_usd    REAL
+    );
+
+    -- (run_id, seq) is the natural read order for run-detail rendering.
+    CREATE INDEX IF NOT EXISTS idx_run_steps_run
+      ON run_steps (run_id, seq);
+    -- M4 analytics: "p95 latency for tool X across all runs", "failure rate by tool".
+    CREATE INDEX IF NOT EXISTS idx_run_steps_tool
+      ON run_steps (tool_id, status, started_at);
+    CREATE INDEX IF NOT EXISTS idx_run_steps_kind
+      ON run_steps (kind, status);
   `);
 }
 
