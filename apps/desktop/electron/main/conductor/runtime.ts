@@ -427,6 +427,8 @@ export class ConductorRuntime {
     let guardrails: RuntimeRunRequest['guardrails'];
     let budget: RuntimeRunRequest['budget'];
     let agentName = 'inline';
+    let agentId = '_inline';
+    let triggerKind: string | undefined;
 
     if (input.agentRelPath) {
       // Saved agent path — load + assemble.
@@ -453,6 +455,8 @@ export class ConductorRuntime {
       budget = parsed.budget;
       prompt = defaultUserPromptFor(parsed.trigger.kind);
       agentName = parsed.name;
+      agentId = parsed.id;
+      triggerKind = parsed.trigger.kind;
     } else {
       prompt = input.inlinePrompt ?? '';
       systemPrompt = input.inlineSystemPrompt;
@@ -480,8 +484,11 @@ export class ConductorRuntime {
     const innerAbort = new AbortController();
     runStoreMain.register({
       id: runId,
+      agentId,
       agentName,
       abortController: innerAbort,
+      workspaceId: this.workspaceId === 'default' ? null : this.workspaceId,
+      ...(triggerKind !== undefined ? { triggerKind } : {}),
     });
 
     const runtimeReq: RuntimeRunRequest = {
